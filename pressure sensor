@@ -1,0 +1,62 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import sys, re, signal, time
+import serial
+
+PORT = "/dev/ttyUSB0"
+BAUD = 921600
+TIMEOUT_S = 0.3
+HEX_FRAME_REGEX = re.compile(rb'([0-9A-Fa-f]{24})')
+
+def parse_hex24_to_i16s(hex_bytes24: bytes):
+    vals = []
+    for i in range(0, 24, 4):
+        w = int(hex_bytes24[i:i+4], 16)
+        if w >= 0x8000:
+            w -= 0x10000
+        vals.append(w)
+    return vals
+
+def send(ser, cmd: bytes):
+    ser.write(cmd + b"\r\n")
+
+def main():
+    try:
+        ser = serial.Serial(PORT, BAUD, timeout=TIMEOUT_S,
+                            bytesize=serial.EIGHTBITS,
+                            parity=serial.PARITY_NONE,
+                            stopbits=serial.STOPBITS_ONE)
+    except Exception as e:
+        print(e)
+        sys.exit(1)
+
+    stop = {"n":0}
+    def on_sigint(sig, frame):
+        stop["n"] += 1
+        if stop["n"] == 1: print("\nStopping ...")
+        else: sys.exit(0)
+    signal.signal(signal.SIGINT, on_sigint)
+
+    try:
+        while True:
+            send(ser, b"READ?")
+            line = ser.read_until(b"\r\n")
+            if not line:
+                continue
+            m = HEX_FRAME_REGEX.search(line)
+            if not m:
+                continue
+            Fx,Fy,Fz,Mx,My,Mz = parse_hex24_to_i16s(m.group(1))
+            print(f"Fx={Fx:+6d}  Fy={Fy:+6d}  Fz={Fz:+6d}   Mx={Mx:+6d}  My={My:+6d}  Mz={Mz:+6d}")
+            if stop["n"] > 0:
+                break
+    except KeyboardInterrupt:
+        pass
+    finally:
+        try: ser.close()
+        except: pass
+
+if _name_ == "_main_":
+    main()
+撰寫內容到人與機器實驗室專題-機械A
