@@ -40,5 +40,27 @@ def generate_launch_description():
                 'depth_topic': '/camera/aligned_depth_to_color/image_raw',
                 'camera_info_topic': '/camera/color/camera_info',
             }]
+        ),
+        Node(
+            package='yolo',
+            executable='yolo_visualization',
+            name='yolo_visualization',
+            output='screen',
+            parameters=[
+                
+                {'image_topic': '/camera/color/image_raw'},
+                {'detections_topic': '/yolo/detections'},
+                {'out_image_topic': '/yolo/visualization/image'},
+                {'sync_tolerance_ms': 120.0},
+                {'draw_thickness': 2},
+                {'font_scale': 0.5},
+                {'min_score_to_draw': 0.0},
+                {'box_color_bgr': [0, 255, 0]},
+            ],
+        ),
+        Node(
+            package='rqt_image_view',
+            executable='rqt_image_view',
+            name='image_view'
         )
     ])
