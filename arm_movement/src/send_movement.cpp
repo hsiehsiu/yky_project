@@ -52,7 +52,7 @@ int main(int argc, char **argv)
     auto node = rclcpp::Node::make_shared("send_movement");
 
     // 建立 SendScript Client
-    auto client = node->create_client<tm_msgs::srv::SendScript>("send_movement");
+    auto client = node->create_client<tm_msgs::srv::SendScript>("send_script");
 
     // 讀取 JSON 指令
     std::ifstream file("/home/hudenxiao/tmdriver_ws/src/tmr_ros2/json/move.json");
