@@ -26,7 +26,7 @@ setup(
     extras_require={'test': ['pytest']},
     entry_points={
         'console_scripts': [
-            'node = yolo.node:main',
+            'analysis = yolo.analysis:main',
             'yolo_visualization = yolo.yolo_visualization:main',
         ],
     },

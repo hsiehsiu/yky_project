@@ -29,8 +29,8 @@ def generate_launch_description():
         ),
         Node(
             package='yolo',
-            executable='node',
-            name='yolo',
+            executable='analysis',
+            name='analysis',
             output='screen',
             parameters=[{
                 'model_path': LaunchConfiguration('model_path'),
