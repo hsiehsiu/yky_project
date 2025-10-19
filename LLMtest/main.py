@@ -6,7 +6,7 @@ import subprocess
 import time
 
 # ------------------ OpenRouter API ------------------
-API_KEY = "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"
+API_KEY = "找赤赤拿 嘻嘻"
 URL = "https://openrouter.ai/api/v1/chat/completions"
 
 headers = {
@@ -24,7 +24,7 @@ def ask_openrouter(messages, model="openai/gpt-3.5-turbo"):
         return '{"error": "API 請求失敗"}'
     return response.json()["choices"][0]["message"]["content"]
 
-# ------------------ 啟動背景 Subscriber ------------------
+# ------------------ 背景 Subscriber ------------------
 TMUX_SESSION = "ros_subscribers"
 
 def start_tmux_subscribers():
@@ -71,6 +71,7 @@ def main():
         keycaps_file = "/home/hudenxiao/tmdriver_ws/src/tmr_ros2/json/keycap_coordinate.json"
         feedback_file = "/home/hudenxiao/tmdriver_ws/src/tmr_ros2/json/feedback_pose.json"
         move_file = "/home/hudenxiao/tmdriver_ws/src/tmr_ros2/json/move.json"
+        last_move_file = "/home/hudenxiao/tmdriver_ws/src/tmr_ros2/json/last_move.json"  # 新增
         prompt_file = "/home/hudenxiao/tmdriver_ws/LLMtest/prompt.txt"
 
         if not os.path.exists(prompt_file):
@@ -102,13 +103,22 @@ def main():
                     print("無法理解您的指令，請重新輸入！")
                     continue
 
+                #回到上次位置
+                if "return_last" in json_data and json_data["return_last"] is True:
+                    if not os.path.exists(last_move_file):
+                        print("目前沒有上一次的位置記錄。")
+                        continue
+                    with open(last_move_file, "r", encoding="utf-8") as f:
+                        json_data = json.load(f)
+                    print("回到上一次的座標。")
+
                 # --- swap 功能 ---
-                if "swap" in json_data:
+                elif "swap" in json_data:
                     k1, k2 = json_data["swap"]
                     pos1 = get_keycap_position(k1, keycaps_file)
                     pos2 = get_keycap_position(k2, keycaps_file)
                     if not pos1 or not pos2:
-                        print(f"找不到鍵帽 {k1} 或 {k2} 的座標，請檢查 {keycaps_file}")
+                        print(f"找不到鍵帽 {k1} 或 {k2} 的座標")
                         continue
 
                     feedback_pose = get_feedback_pose(feedback_file)
@@ -118,7 +128,6 @@ def main():
                         rx, ry, rz = -173.0, -12.27, 129.31
 
                     idle_pos = {"x": 500.0, "y": -60.0, "z": 400.0}
-
                     swap_instructions = [
                         {"mode": "absolute", "x": pos1["x"], "y": pos1["y"], "z": pos1["z"], "rx": rx, "ry": ry, "rz": rz, "action": "pick"},
                         {"mode": "absolute", "x": idle_pos["x"], "y": idle_pos["y"], "z": idle_pos["z"], "rx": rx, "ry": ry, "rz": rz, "action": "place"},
@@ -127,9 +136,7 @@ def main():
                         {"mode": "absolute", "x": idle_pos["x"], "y": idle_pos["y"], "z": idle_pos["z"], "rx": rx, "ry": ry, "rz": rz, "action": "pick"},
                         {"mode": "absolute", "x": pos2["x"], "y": pos2["y"], "z": pos2["z"], "rx": rx, "ry": ry, "rz": rz, "action": "place"}
                     ]
-
                     json_data = {"swap_sequence": swap_instructions}
-                    print(f"執行鍵帽 {k1} 與 {k2} 的交換動作")
 
                 # --- keycap 功能 ---
                 elif "keycap" in json_data:
@@ -152,7 +159,6 @@ def main():
                             "rz": rz,
                             "action": "place"
                         }
-                        print(f"移動到鍵帽 {key_name}")
                     else:
                         print(f"找不到鍵帽 {key_name} 的座標")
                         continue
@@ -174,19 +180,12 @@ def main():
                     ]
 
                     if json_data["mode"] == "relative":
-                        dx = json_data.get("x", 0.0)
-                        dy = json_data.get("y", 0.0)
-                        dz = json_data.get("z", 0.0)
-                        drx = json_data.get("rx", 0.0)
-                        dry = json_data.get("ry", 0.0)
-                        drz = json_data.get("rz", 0.0)
-
-                        abs_pose[0] += dx
-                        abs_pose[1] += dy
-                        abs_pose[2] += dz
-                        abs_pose[3] += drx
-                        abs_pose[4] += dry
-                        abs_pose[5] += drz
+                        abs_pose[0] += json_data.get("x", 0.0)
+                        abs_pose[1] += json_data.get("y", 0.0)
+                        abs_pose[2] += json_data.get("z", 0.0)
+                        abs_pose[3] += json_data.get("rx", 0.0)
+                        abs_pose[4] += json_data.get("ry", 0.0)
+                        abs_pose[5] += json_data.get("rz", 0.0)
 
                         json_data = {
                             "mode": "absolute",
@@ -202,6 +201,10 @@ def main():
                     print("模型輸出不包含可執行的指令欄位。")
                     continue
 
+                # 儲存上一次位置
+                with open(last_move_file, 'w', encoding="utf-8") as f:
+                    json.dump(json_data, f, indent=2)
+
                 with open(move_file, 'w', encoding="utf-8") as f:
                     json.dump(json_data, f, indent=2)
 
@@ -211,9 +214,7 @@ def main():
                 print(f"發生錯誤：{e}")
 
     finally:
-        # 不論正常結束或發生例外，都會關閉 subscriber
         stop_tmux_subscribers()
-
 
 if __name__ == "__main__":
     main()
