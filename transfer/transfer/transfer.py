@@ -25,16 +25,16 @@ class DetectionToBase(Node):
         self.create_subscription(Detection2DArray, '/yolo/detections', self.cb_detections, 10)
 
         # ---- 相機內參 (請改成你的 camera_info) ----
-        self.fx = 615.0
-        self.fy = 615.0
-        self.cx = 320.0
-        self.cy = 240.0
+        self.fx = 612.0
+        self.fy = 612.0
+        self.cx = 323.0
+        self.cy = 238.0
 
         # 儲存物件座標，保留上一次辨識的座標
         self.objects_json = {}
 
         # JSON 路徑
-        self.json_path = '/home/hudenxiao/tmdriver_ws/src/tmr_ros2/json/keycap_coordinate.json'
+        self.json_path = '/home/hsiu/tmrdriver_ws/resource/json/keycap_coordinate.json'
 
     def cb_depth(self, msg: Image):
         self.depth_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')

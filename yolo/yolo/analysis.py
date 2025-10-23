@@ -171,11 +171,24 @@ class YoloDetector(Node):
         except Exception as e:
             self.get_logger().fatal(f'Failed to load YOLO model: {e}\n{traceback.format_exc()}')
             raise
-        self.class_names = None
-        try:
-            self.class_names = self.model.model.names if hasattr(self.model, 'model') else None
-        except Exception:
-            self.class_names = None
+
+        # 取得類別名稱表（統一成 {int: str}），兼容多版本/多型別
+        def _get_names(m):
+            cand = None
+            if hasattr(m, 'names'):
+                cand = m.names
+            elif hasattr(m, 'model') and hasattr(m.model, 'names'):
+                cand = m.model.names
+            if isinstance(cand, dict):
+                return {int(k): str(v) for k, v in cand.items()}
+            if isinstance(cand, (list, tuple)):
+                return {i: str(v) for i, v in enumerate(cand)}
+            return None
+
+        self.class_names = _get_names(self.model)
+        if not self.class_names:
+            self.get_logger().warning('Could not read class names from YOLO model; will publish numeric IDs as text.')
+
         self.get_logger().info(f'Loaded YOLO: {self.model_path} (conf={self.conf})')
 
         # ---------- QoS ----------
@@ -321,19 +334,23 @@ class YoloDetector(Node):
                         det.bbox.size_x = w
                         det.bbox.size_y = h
 
-                        hyp = ObjectHypothesisWithPose()
-                        # 取得類別文字
-                        if self.class_names and 0 <= clsv < len(self.class_names):
-                            cls_text = str(self.class_names[clsv])
+                        # 取得類別文字（名稱優先，取不到時用數字字串）
+                        if self.class_names and clsv in self.class_names:
+                            cls_text = self.class_names[clsv]
                         else:
                             cls_text = str(clsv)
-                        _set_hypothesis(hyp, cls_text, confv)
+
+                        hyp = ObjectHypothesisWithPose()
+                        _set_hypothesis(hyp, cls_text, confv)  # -> hypothesis.class_id = 名稱（或數字字串）
+
+                        # 也把名稱放到 det.id（若該欄位存在，方便某些下游直接讀 det.id）
+                        if hasattr(det, 'id'):
+                            det.id = cls_text
 
                         # ---- 3D 反投影（需要 fx,fy,cx,cy 與 depth）----
                         if can_3d and fx and fy:
                             try:
-                                px, py = int(round(cx2d)), int(round(cy2d
-                                ))
+                                px, py = int(round(cx2d)), int(round(cy2d))
                                 H, W = (self.last_depth_shape if self.last_depth_shape
                                         else self.last_depth.shape[:2])
 
@@ -364,7 +381,7 @@ class YoloDetector(Node):
 
                         # ---- 視覺標註（若有人訂閱就畫；沒人訂閱也無妨）----
                         if annot is not None:
-                            label = _get_hypothesis_id(hyp)
+                            label = _get_hypothesis_id(hyp)   # 現在會是「類別名稱」
                             score_show = _get_hypothesis_score(hyp)
                             cv2.rectangle(annot, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 2)
                             ty = max(0, int(y1) - 5)

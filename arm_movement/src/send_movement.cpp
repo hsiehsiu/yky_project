@@ -55,7 +55,7 @@ int main(int argc, char **argv)
     auto client = node->create_client<tm_msgs::srv::SendScript>("send_script");
 
     // 讀取 JSON 指令
-    std::ifstream file("/home/hudenxiao/tmdriver_ws/src/tmr_ros2/json/move.json");
+    std::ifstream file("/home/hsiu/tmrdriver_ws/resource/json/move.json");
     if (!file.is_open()) {
         std::cerr << "無法開啟 move.json" << std::endl;
         return 1;

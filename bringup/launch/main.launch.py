@@ -15,7 +15,7 @@ def generate_launch_description():
     rs_pkg        = get_package_share_directory('realsense') 
     yolo_pkg      = get_package_share_directory('yolo')
     transfer_pkg  = get_package_share_directory('transfer')
-    path_pkg      = get_package_share_directory('path_planning')
+    #path_pkg      = get_package_share_directory('path_planning')
     '''
     tm = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -35,22 +35,22 @@ def generate_launch_description():
             PathJoinSubstitution([yolo_pkg, 'launch', 'yolo.launch.py'])
         )
     )
-
+    
     transfer = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution([transfer_pkg, 'launch', 'transfer.launch.py'])
         )
     )
-
+    '''
     path = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution([path_pkg, 'launch', 'path_planning.launch.py'])
         )
     )
-
+    '''
     return LaunchDescription([
         declare_robot_ip, declare_domain,
         set_domain,
         #tm, 
-        rs, yolo, transfer, path
+        rs, yolo, transfer#, path
     ])
