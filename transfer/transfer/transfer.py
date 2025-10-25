@@ -3,122 +3,107 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image
 from vision_msgs.msg import Detection2DArray
-import tf2_ros
-import numpy as np
-import json
 from cv_bridge import CvBridge
+import numpy as np
+import tf2_ros
+from geometry_msgs.msg import PointStamped
 
 class DetectionToBase(Node):
     def __init__(self):
-        super().__init__('detection_to_base')
+        super().__init__('transfer_node')
 
-        # ---- TF buffer & listener ----
+        # ---- YOLO detections ----
+        self.subscription = self.create_subscription(
+            Detection2DArray,
+            '/yolo/detections',
+            self.detection_callback,
+            10)
+
+        # ---- Depth image ----
+        self.depth_sub = self.create_subscription(
+            Image,
+            '/camera/aligned_depth_to_color/image_raw',
+            self.depth_callback,
+            10)
+
+        # ---- TF ----
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
-        # ---- 影像與深度 ----
         self.bridge = CvBridge()
         self.depth_image = None
-        self.create_subscription(Image, '/camera/aligned_depth_to_color/image_raw', self.cb_depth, 10)
 
-        # ---- 訂閱 YOLO 偵測 ----
-        self.create_subscription(Detection2DArray, '/yolo/detections', self.cb_detections, 10)
+        # RealSense intrinsics (根據你的相機改成實際值)
+        self.fx = 616.0
+        self.fy = 616.0
+        self.cx = 320.0
+        self.cy = 240.0
 
-        # ---- 相機內參 (請改成你的 camera_info) ----
-        self.fx = 612.0
-        self.fy = 612.0
-        self.cx = 323.0
-        self.cy = 238.0
-
-        # 儲存物件座標，保留上一次辨識的座標
-        self.objects_json = {}
-
-        # JSON 路徑
-        self.json_path = '/home/hsiu/tmrdriver_ws/resource/json/keycap_coordinate.json'
-
-    def cb_depth(self, msg: Image):
+    def depth_callback(self, msg):
+        """保存深度影像"""
         self.depth_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
 
-    def quaternion_to_matrix(self, qx, qy, qz, qw):
-        """ 將四元數轉換為 4x4 變換矩陣 """
-        x, y, z, w = qx, qy, qz, qw
-        T = np.array([
-            [1-2*y*y-2*z*z, 2*x*y-2*z*w, 2*x*z+2*y*w, 0],
-            [2*x*y+2*z*w, 1-2*x*x-2*z*z, 2*y*z-2*x*w, 0],
-            [2*x*z-2*y*w, 2*y*z+2*x*w, 1-2*x*x-2*y*y, 0],
-            [0,0,0,1]
-        ])
-        return T
-
-    def cb_detections(self, msg: Detection2DArray):
+    def detection_callback(self, msg):
         if self.depth_image is None:
-            self.get_logger().warn('等待深度影像...')
+            self.get_logger().info("等待深度影像中...")
             return
 
-        # 暫存本次偵測更新的物件
-        updated_objects = {}
-
         for det in msg.detections:
-            if not det.results:
+            # --- 取出物件類別 ---
+            class_id = "unknown"
+            if len(det.results) > 0:
+                class_id = det.results[0].hypothesis.class_id
+
+            # --- 取出中心像素座標 ---
+            u = int(det.bbox.center.position.x)
+            v = int(det.bbox.center.position.y)
+
+            # --- 取得該像素深度 ---
+            if v < 0 or v >= self.depth_image.shape[0] or u < 0 or u >= self.depth_image.shape[1]:
                 continue
-            hyp = det.results[0]
-            cls_name = getattr(hyp, 'id', 'unknown')
+            depth = self.depth_image[v, u] / 1000.0  # 轉成公尺 (若原為mm)
 
-            # bbox 中心點
-            bbox = det.bbox
-            cx = int(bbox.center.x)
-            cy = int(bbox.center.y)
-
-            # 深度 (meter)
-            depth = float(self.depth_image[cy, cx]) / 1000.0
-            if depth <= 0.0:
+            if depth == 0:
+                self.get_logger().warn(f"{class_id} 的深度無效 (0)")
                 continue
 
-            # ---- 像素座標 → 相機座標 ----
-            X = (cx - self.cx) * depth / self.fx
-            Y = (cy - self.cy) * depth / self.fy
-            Z = depth
-            pt_cam = np.array([X, Y, Z, 1.0])
+            # --- 像素轉相機座標系 (Xc, Yc, Zc) ---
+            Xc = (u - self.cx) * depth / self.fx
+            Yc = (v - self.cy) * depth / self.fy
+            Zc = depth
 
-            # ---- 轉換到 base_link ----
+            # --- 建立 PointStamped (相機座標) ---
+            point_cam = PointStamped()
+            point_cam.header = msg.header
+            point_cam.header.frame_id = "camera_color_optical_frame"
+            point_cam.point.x = Xc
+            point_cam.point.y = Yc
+            point_cam.point.z = Zc
+
             try:
-                trans = self.tf_buffer.lookup_transform('base_link', 'camera_color_optical_frame', rclpy.time.Time())
-                q = trans.transform.rotation
-                t = trans.transform.translation
-                T = self.quaternion_to_matrix(q.x, q.y, q.z, q.w)
-                T[:3, 3] = [t.x, t.y, t.z]
-                pt_base = T @ pt_cam
+                # --- 轉換成 base_link ---
+                transform = self.tf_buffer.lookup_transform(
+                    'base_link',  # 目標座標系
+                    point_cam.header.frame_id,  # 來源座標系
+                    rclpy.time.Time())
 
-                # 更新本次偵測到的物件
-                updated_objects[cls_name] = {
-                    "x": round(float(pt_base[0]), 3),
-                    "y": round(float(pt_base[1]), 3),
-                    "z": round(float(pt_base[2]), 3)
-                }
+                from tf2_geometry_msgs import do_transform_point
+                point_base = do_transform_point(point_cam, transform)
+
+                self.get_logger().info(
+                    f"🔹 {class_id}: base_link座標 = "
+                    f"({point_base.point.x:.3f}, {point_base.point.y:.3f}, {point_base.point.z:.3f})"
+                )
 
             except Exception as e:
-                self.get_logger().error(f'TF lookup failed: {e}')
-                continue
+                self.get_logger().warn(f"TF 轉換失敗: {e}")
 
-        # ---- 合併上一次的座標 (保留沒偵測到的物件) ----
-        self.objects_json.update(updated_objects)
-
-        # ---- 寫入 JSON ----
-        if self.objects_json:
-            with open(self.json_path, 'w') as f:
-                json.dump(self.objects_json, f, indent=2)
-            self.get_logger().info(f"已更新 JSON：{len(self.objects_json)} 物件，路徑：{self.json_path}")
-
-def main():
-    rclpy.init()
+def main(args=None):
+    rclpy.init(args=args)
     node = DetectionToBase()
-    try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        node.destroy_node()
-        rclpy.shutdown()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
 
 if __name__ == '__main__':
     main()
