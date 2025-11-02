@@ -1,142 +1,265 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import os
+import json
+from datetime import datetime, timezone, timedelta
+
+import numpy as np
 import rclpy
 from rclpy.node import Node
-from sensor_msgs.msg import Image
+from rclpy.qos import QoSProfile, QoSHistoryPolicy, QoSReliabilityPolicy
+from sensor_msgs.msg import Image, CameraInfo
 from vision_msgs.msg import Detection2DArray
-import tf2_ros
-import numpy as np
-import json
 from cv_bridge import CvBridge
+from message_filters import Subscriber, ApproximateTimeSynchronizer
+import tf2_ros
+from builtin_interfaces.msg import Time as RosTime
+from vision_msgs.msg import Detection2DArray, Detection2D, ObjectHypothesisWithPose, ObjectHypothesis
+# (在 transfer.py 的最上方)
 
-class DetectionToBase(Node):
+def _get_hypothesis_id(hyp: "ObjectHypothesisWithPose") -> str: # noqa
+    """從 hyp 中取出 class id（兼容新/舊版）。"""
+    if hasattr(hyp, 'hypothesis') and hasattr(hyp.hypothesis, 'class_id'):
+        return str(hyp.hypothesis.class_id)
+    if hasattr(hyp, 'id'):
+        return str(hyp.id)
+    return ""
+
+def _get_hypothesis_score(hyp: "ObjectHypothesisWithPose") -> float: # noqa
+    """從 hyp 中取出 score（兼容新/舊版）。"""
+    if hasattr(hyp, 'hypothesis') and hasattr(hyp.hypothesis, 'score'):
+        return float(hyp.hypothesis.score)
+    if hasattr(hyp, 'score'):
+        return float(hyp.score)
+    return 0.0
+def _tz_taipei_iso(t: RosTime) -> str:
+    tz = timezone(timedelta(hours=8))
+    return datetime.fromtimestamp(t.sec + t.nanosec * 1e-9, tz=tz).isoformat(timespec='milliseconds')
+
+
+def _ensure_parent(file_path: str):
+    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+
+
+def _depth_at(depth_msg: Image, u: int, v: int, bridge: CvBridge):
+    if u < 0 or v < 0 or u >= depth_msg.width or v >= depth_msg.height:
+        return None
+    try:
+        dimg = bridge.imgmsg_to_cv2(depth_msg)
+        val = dimg[int(v), int(u)]
+    except Exception:
+        return None
+    enc = (depth_msg.encoding or "").upper()
+    if enc in ("16UC1", "16UC"):
+        if val == 0:
+            return None
+        return float(val) / 1000.0  # mm -> m
+    elif enc in ("32FC1", "TYPE_32FC1"):
+        if np.isnan(val) or val <= 0.0:
+            return None
+        return float(val)
+    else:
+        try:
+            return float(val) if val > 0 else None
+        except Exception:
+            return None
+
+
+def _deproject(K, u, v, z):
+    fx, cx = K[0], K[2]
+    fy, cy = K[4], K[5]
+    X = (u - cx) * z / fx
+    Y = (v - cy) * z / fy
+    return np.array([X, Y, z], dtype=np.float64)
+
+
+def _quat_to_R(qx, qy, qz, qw):
+    qx2, qy2, qz2 = qx*qx, qy*qy, qz*qz
+    return np.array([
+        [1-2*(qy2+qz2), 2*(qx*qy - qz*qw), 2*(qx*qz + qy*qw)],
+        [2*(qx*qy + qz*qw), 1-2*(qx2+qz2), 2*(qy*qz - qx*qw)],
+        [2*(qx*qz - qy*qw), 2*(qy*qz + qx*qw), 1-2*(qx2+qy2)]
+    ], dtype=np.float64)
+
+
+def _transform_point(T, p_cam):
+    q = T.transform.rotation
+    t = T.transform.translation
+    R = _quat_to_R(q.x, q.y, q.z, q.w)
+    return R @ p_cam + np.array([t.x, t.y, t.z], dtype=np.float64)
+
+
+class TransferNode(Node):
     def __init__(self):
-        super().__init__('detection_to_base')
+        super().__init__('transfer')
 
-        # ---- TF buffer & listener ----
+        # -------- 參數 --------
+        self.declare_parameter('rgb_topic', '/camera/color/image_raw')
+        self.declare_parameter('depth_topic', '/camera/aligned_depth_to_color/image_raw')
+        self.declare_parameter('camera_info_topic', '/camera/color/camera_info')
+        self.declare_parameter('detections_topic', '/yolo/detections')
+        self.declare_parameter('base_frame', 'base_link')
+        self.declare_parameter('camera_frame', 'camera_color_optical_frame')
+        self.declare_parameter('keymap_file', '/home/hsiu/tmrdriver_ws/resource/json/keycap_coordinate.json')
+        self.declare_parameter('units', 'mm')           # 'mm' or 'm'
+        self.declare_parameter('lowercase_labels', True)
+        self.declare_parameter('tf_timeout_sec', 0.08)
+
+        # 讀參數
+        self.rgb_topic = self.get_parameter('rgb_topic').get_parameter_value().string_value
+        self.depth_topic = self.get_parameter('depth_topic').get_parameter_value().string_value
+        self.info_topic = self.get_parameter('camera_info_topic').get_parameter_value().string_value
+        self.det_topic = self.get_parameter('detections_topic').get_parameter_value().string_value
+        self.base_frame = self.get_parameter('base_frame').get_parameter_value().string_value
+        self.camera_frame = self.get_parameter('camera_frame').get_parameter_value().string_value
+        self.keymap_file = self.get_parameter('keymap_file').get_parameter_value().string_value
+        self.units = self.get_parameter('units').get_parameter_value().string_value.lower()
+        self.lowercase = bool(self.get_parameter('lowercase_labels').get_parameter_value().bool_value)
+        self.tf_timeout = float(self.get_parameter('tf_timeout_sec').get_parameter_value().double_value)
+
+        _ensure_parent(self.keymap_file)
+
+        # -------- QoS 同步 --------
+        sensor_qos = QoSProfile(
+            reliability=QoSReliabilityPolicy.BEST_EFFORT,
+            history=QoSHistoryPolicy.KEEP_LAST, depth=5
+        )
+        reliable_qos = QoSProfile(
+            reliability=QoSReliabilityPolicy.RELIABLE,
+            history=QoSHistoryPolicy.KEEP_LAST, depth=10
+        )
+
+        self.bridge = CvBridge()
+        self.K = None
+
+        self.sub_rgb = Subscriber(self, Image, self.rgb_topic, qos_profile=sensor_qos)
+        self.sub_depth = Subscriber(self, Image, self.depth_topic, qos_profile=sensor_qos)
+        self.sub_info = Subscriber(self, CameraInfo, self.info_topic, qos_profile=reliable_qos)
+        self.sub_det = Subscriber(self, Detection2DArray, self.det_topic, qos_profile=reliable_qos)
+
+        self.sync = ApproximateTimeSynchronizer(
+            [self.sub_rgb, self.sub_depth, self.sub_info, self.sub_det],
+            queue_size=20, slop=0.12, allow_headerless=False
+        )
+        self.sync.registerCallback(self._cb)
+
+        # -------- TF2 --------
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
-        # ---- 影像與深度 ----
-        self.bridge = CvBridge()
-        self.depth_image = None
-        self.create_subscription(Image, '/camera/aligned_depth_to_color/image_raw', self.cb_depth, 10)
+        self.get_logger().info(
+            f"[transfer] Subscribing:\n"
+            f"  {self.rgb_topic}\n  {self.depth_topic}\n  {self.info_topic}\n  {self.det_topic}\n"
+            f"TF: {self.base_frame} <- {self.camera_frame}\n"
+            f"Keymap: {self.keymap_file} (units={self.units})"
+        )
 
-        # ---- YOLO 偵測結果 ----
-        self.create_subscription(Detection2DArray, '/yolo/detections', self.cb_detections, 10)
+    # 讀/寫 keymap 檔（dict 結構）
+    def _load_keymap(self):
+        if not os.path.exists(self.keymap_file):
+            return {}
+        try:
+            with open(self.keymap_file, 'r', encoding='utf-8') as f:
+                obj = json.load(f)
+                return obj if isinstance(obj, dict) else {}
+        except Exception:
+            return {}
 
-        # ---- 相機內參 (請改成你的 camera_info 值) ----
-        self.fx = 612.0
-        self.fy = 612.0
-        self.cx = 323.0
-        self.cy = 238.0
+    def _save_keymap(self, data: dict):
+        tmp = self.keymap_file + ".tmp"
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, self.keymap_file)
 
-        # ---- JSON 檔案儲存 ----
-        self.objects_json = {}  # 儲存所有辨識物件的座標
-        self.json_path = '/home/hsiu/tmrdriver_ws/resource/json/keycap_coordinate.json'
+    def _label_of(self, det) -> str:
+        label = ""
+        if det.results:
+            # 使用正確的輔助函數來找最高分
+            best = max(det.results, key=_get_hypothesis_score)
+            # 使用正確的輔助函數來提取 ID
+            label = _get_hypothesis_id(best)
 
-    # ============================================================
-    def cb_depth(self, msg: Image):
-        """接收深度影像"""
-        self.depth_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
+        # Fallback (這個 fallback 很好，analysis.py 也有設定 det.id，請保留)
+        if not label and hasattr(det, 'id') and det.id:
+            label = str(det.id)
+        
+        return label.lower() if self.lowercase else label
 
-    # ============================================================
-    def quaternion_to_matrix(self, qx, qy, qz, qw):
-        """四元數轉換成 4x4 變換矩陣"""
-        x, y, z, w = qx, qy, qz, qw
-        T = np.array([
-            [1 - 2 * (y**2 + z**2), 2 * (x*y - z*w),     2 * (x*z + y*w),     0],
-            [2 * (x*y + z*w),       1 - 2 * (x**2 + z**2), 2 * (y*z - x*w),   0],
-            [2 * (x*z - y*w),       2 * (y*z + x*w),     1 - 2 * (x**2 + y**2), 0],
-            [0, 0, 0, 1]
-        ])
-        return T
-
-    # ============================================================
-    def cb_detections(self, msg: Detection2DArray):
-        """接收 YOLO 偵測並轉換成 Base Link 座標"""
-        if self.depth_image is None:
-            self.get_logger().warn('等待深度影像...')
+    def _cb(self, rgb_msg: Image, depth_msg: Image, info_msg: CameraInfo, det_msg: Detection2DArray):
+        if info_msg.k and len(info_msg.k) == 9:
+            self.K = info_msg.k
+        else:
+            self.get_logger().warn("CameraInfo.K invalid; skip frame.")
             return
 
-        updated_objects = {}
+        stamp = rgb_msg.header.stamp
+        try:
+            T = self.tf_buffer.lookup_transform(
+                self.base_frame, self.camera_frame, stamp,
+                rclpy.duration.Duration(seconds=self.tf_timeout)
+            )
+        except Exception as e:
+            self.get_logger().warn(f"TF lookup failed: {e}")
+            return
 
-        for det in msg.detections:
-            if not det.results:
-                continue
+        keymap = self._load_keymap()
+        updated = 0
 
-            # --- 取出 class id ---
-            hyp = det.results[0].hypothesis
-            cls_name = getattr(hyp, 'class_id', 'unknown')
-
-            # --- 取得 bbox 中心像素座標 ---
-            bbox = det.bbox
-            cx = int(bbox.center.position.x)
-            cy = int(bbox.center.position.y)
-
-            # --- 檢查像素範圍 ---
-            if (self.depth_image is None or
-                cy < 0 or cy >= self.depth_image.shape[0] or
-                cx < 0 or cx >= self.depth_image.shape[1]):
-                continue
-
-            # --- 取得深度 (公尺) ---
-            depth = float(self.depth_image[cy, cx]) / 1000.0
-            if depth <= 0.0:
-                self.get_logger().warn(f'{cls_name} 深度無效 (0)')
-                continue
-
-            # --- 像素 → 相機座標 (右手座標系) ---
-            X = (cx - self.cx) * depth / self.fx
-            Y = (cy - self.cy) * depth / self.fy
-            Z = depth
-            pt_cam = np.array([X, Y, Z, 1.0])
-
-            # --- 轉換到 base_link ---
+        for det in det_msg.detections:
+            # 取 bbox 中心像素
             try:
-                trans = self.tf_buffer.lookup_transform(
-                    'base_link',
-                    'camera_color_optical_frame',
-                    rclpy.time.Time(),
-                    timeout=rclpy.duration.Duration(seconds=0.5)
-                )
+                cx = det.bbox.center.position.x
+                cy = det.bbox.center.position.y
+            except Exception:
+                continue
+            u, v = int(round(cx)), int(round(cy))
 
-                q = trans.transform.rotation
-                t = trans.transform.translation
-                T = self.quaternion_to_matrix(q.x, q.y, q.z, q.w)
-                T[:3, 3] = [t.x, t.y, t.z]
-
-                pt_base = T @ pt_cam
-
-                updated_objects[cls_name] = {
-                    "x": round(float(pt_base[0]), 3),
-                    "y": round(float(pt_base[1]), 3),
-                    "z": round(float(pt_base[2]), 3)
-                }
-
-                self.get_logger().info(
-                    f"🔹 {cls_name}: base_link = ({pt_base[0]:.3f}, {pt_base[1]:.3f}, {pt_base[2]:.3f})"
-                )
-
-            except Exception as e:
-                self.get_logger().error(f'TF lookup failed: {e}')
+            # 深度（m）
+            z = _depth_at(depth_msg, u, v, self.bridge)
+            if z is None or z <= 0:
                 continue
 
-        # ---- 更新 JSON ----
-        if updated_objects:
-            self.objects_json.update(updated_objects)
+            # 反投影到相機座標 → 轉 base_link
+            p_cam = _deproject(self.K, u, v, z)
             try:
-                with open(self.json_path, 'w') as f:
-                    json.dump(self.objects_json, f, indent=2)
-                self.get_logger().info(
-                    f"已更新 JSON：{len(self.objects_json)} 物件，路徑：{self.json_path}"
-                )
-            except Exception as e:
-                self.get_logger().error(f"無法寫入 JSON：{e}")
+                p_base = _transform_point(T, p_cam)  # m
+            except Exception:
+                continue
 
-# ============================================================
+            label = self._label_of(det)
+            if not label:
+                continue
+
+            if self.units == 'mm':
+                x, y, z_out = (p_base * 1000.0).tolist()
+            else:
+                x, y, z_out = p_base.tolist()
+
+            keymap[label] = {
+                "x": round(float(x), 3),
+                "y": round(float(y), 3),
+                "z": round(float(z_out), 3)
+            }
+            updated += 1
+
+        if updated > 0:
+            keymap["_meta"] = {
+                "last_update": _tz_taipei_iso(stamp),
+                "frame": self.base_frame,
+                "source": "transfer",
+                "units": self.units
+            }
+            try:
+                self._save_keymap(keymap)
+                self.get_logger().info(f"Updated {updated} keys → {self.keymap_file}")
+            except Exception as e:
+                self.get_logger().error(f"Write JSON failed: {e}")
+
+
 def main():
     rclpy.init()
-    node = DetectionToBase()
+    node = TransferNode()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
@@ -145,5 +268,6 @@ def main():
         node.destroy_node()
         rclpy.shutdown()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

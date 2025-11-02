@@ -5,6 +5,8 @@ from sensor_msgs.msg import Image, CameraInfo
 from cv_bridge import CvBridge
 import numpy as np
 import pyrealsense2 as rs
+from sensor_msgs.msg import PointCloud2
+from sensor_msgs_py import point_cloud2
 
 class RealSenseNode(Node):
     def __init__(self):
@@ -27,10 +29,13 @@ class RealSenseNode(Node):
             reliability=QoSReliabilityPolicy.BEST_EFFORT
         )
         self.pub_color = self.create_publisher(Image, '/camera/color/image_raw', sensor_qos)
-        self.pub_depth = self.create_publisher(Image, '/camera/depth/image_rect_raw', sensor_qos)
+        self.pub_depth = self.create_publisher(Image, '/camera/aligned_depth_to_color/image_raw', sensor_qos)
         self.pub_cinfo = self.create_publisher(CameraInfo, '/camera/color/camera_info', 10)
-        self.pub_dinfo = self.create_publisher(CameraInfo, '/camera/depth/camera_info', 10)
+        
 
+        
+        # 新增點雲發布器
+        self.pub_pointcloud = self.create_publisher(PointCloud2, '/camera/depth/color/points', sensor_qos)
         self.bridge = CvBridge()
 
         # ---- RealSense pipeline ----
@@ -52,14 +57,22 @@ class RealSenseNode(Node):
             cfg.enable_stream(rs.stream.depth, dw, dh, rs.format.z16, dfps)
             self.profile = self.pipeline.start(cfg)
         except Exception as e:
-            self.get_logger().error(f'Failed to start RealSense pipeline: {e}')
+            self.get_logger().error(f'Faself.aligniled to start RealSense pipeline: {e}')
             raise
 
         self.get_logger().info('RealSense pipeline started')
 
         # 對齊
         self.align = rs.align(rs.stream.color) if self.align_depth else None
+        # [新增] 初始化點雲生成器
+        if self.align_depth: # 如果有對齊，點雲將基於對齊後的深度圖
+            # 使用 rs.stream.color 作為對齊參考，建立點雲生成器
+            self.pc = rs.pointcloud() 
+        else:
+            # 如果沒有對齊，點雲將基於原始深度圖
+            self.pc = rs.pointcloud()
 
+        self.points = rs.points() # 用於儲存點雲數據
         try:
             color_stream = self.profile.get_stream(rs.stream.color).as_video_stream_profile()
             intr = color_stream.get_intrinsics()
@@ -134,7 +147,36 @@ class RealSenseNode(Node):
             self.pub_color.publish(color_msg)
         except Exception as e:
             self.get_logger().error(f'Failed to publish color frame: {e}')
-
+        # ----------------------------------------
+        # [新增] 點雲生成與發布
+        # ----------------------------------------
+        try:
+            # 1. 計算點雲並映射紋理
+            self.pc.map_to(color)
+            self.points = self.pc.calculate(depth)
+            
+            # 2. 獲取 XYZ 座標
+            v = self.points.get_vertices()
+            
+            # 3. 轉換為 (N, 3) 陣列，其中 N 是點的數量
+            points_array = np.asanyarray(v).view(np.float32).reshape(-1, 3)
+            
+            # 4. 移除無效點 (0, 0, 0) - RealSense 預設會填充無效深度為 0
+            # 由於這是大量數據，這裡不做複雜過濾以維持速度，但需注意 (0,0,0) 點的存在
+            
+            # 5. 生成 ROS PointCloud2 訊息
+            pc_msg = point_cloud2.create_cloud_xyz32(
+                header=color_msg.header, # 沿用 color frame 的 header 和 frame_id
+                points=points_array
+            )
+            
+            self.pub_pointcloud.publish(pc_msg)
+            
+        except Exception as e:
+            self.get_logger().error(f'Failed to publish pointcloud: {e}')
+        # ----------------------------------------
+        # [新增結束] 點雲生成與發布
+        # ----------------------------------------
         try:
             depth_msg = self.bridge.cv2_to_imgmsg(depth_np, encoding='16UC1')
             depth_msg.header.stamp = stamp
@@ -149,7 +191,7 @@ class RealSenseNode(Node):
             dinfo = self.make_camera_info()
             dinfo.header.stamp = stamp
             self.pub_cinfo.publish(cinfo)
-            self.pub_dinfo.publish(dinfo)
+            #self.pub_dinfo.publish(dinfo)
         except Exception as e:
             self.get_logger().error(f'Failed to publish CameraInfo: {e}')
 
