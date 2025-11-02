@@ -1,12 +1,12 @@
+#!/usr/bin/env python3
 import os
 import json
-import base64
 import requests
 import subprocess
 import time
 
 # ------------------ OpenRouter API ------------------
-API_KEY = "找赤赤拿 嘻嘻"
+API_KEY = "APIKEY"
 URL = "https://openrouter.ai/api/v1/chat/completions"
 
 headers = {
@@ -24,24 +24,28 @@ def ask_openrouter(messages, model="openai/gpt-3.5-turbo"):
         return '{"error": "API 請求失敗"}'
     return response.json()["choices"][0]["message"]["content"]
 
-# ------------------ 背景 Subscriber ------------------
-TMUX_SESSION = "ros_subscribers"
+# ------------------ 啟動 ROS launch ------------------
+def start_ros_launch():
+    """
+    依序啟動 subscribers.launch.py 和 main.launch.py
+    """
+    print("啟動中...")
+    sub_process = subprocess.Popen(
+        ["ros2", "launch", "bringup", "subscribers.launch.py"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE
+    )
+    time.sleep(2) 
 
-def start_tmux_subscribers():
-    check = subprocess.run(["tmux", "has-session", "-t", TMUX_SESSION], capture_output=True)
-    if check.returncode == 0:
-        print("已偵測到 tmux session 存在，略過建立。")
-    else:
-        subprocess.run([
-            "tmux", "new-session", "-d", "-s", TMUX_SESSION,
-            "ros2 launch bringup subscribers.launch.py"
-        ])
-        print("已在背景啟動 subscriber 節點。")
-    time.sleep(3)
+    main_process = subprocess.Popen(
+        ["ros2", "launch", "bringup", "main.launch.py"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE
+    )
+    time.sleep(2)
 
-def stop_tmux_subscribers():
-    subprocess.run(["tmux", "kill-session", "-t", TMUX_SESSION])
-    print("所有 subscriber 已關閉")
+    print("ROS2 系統已啟動完成。")
+    return sub_process, main_process
 
 # ------------------ JSON 讀取 ------------------
 def get_keycap_position(key_name, keycaps_file):
@@ -62,8 +66,8 @@ def get_feedback_pose(feedback_file):
 
 # ------------------ 主程式 ------------------
 def main():
-    print("啟動背景 subscriber ...")
-    start_tmux_subscribers()
+    print("初始化 ROS2 系統 ...")
+    sub_process, main_process = start_ros_launch()
 
     try:
         print("聊天啟動，輸入 'exit' 離開。", flush=True)
@@ -71,7 +75,7 @@ def main():
         keycaps_file = "/home/hudenxiao/tmdriver_ws/src/tmr_ros2/json/keycap_coordinate.json"
         feedback_file = "/home/hudenxiao/tmdriver_ws/src/tmr_ros2/json/feedback_pose.json"
         move_file = "/home/hudenxiao/tmdriver_ws/src/tmr_ros2/json/move.json"
-        last_move_file = "/home/hudenxiao/tmdriver_ws/src/tmr_ros2/json/last_move.json"  # 新增
+        last_move_file = "/home/hudenxiao/tmdriver_ws/src/tmr_ros2/json/last_move.json"
         prompt_file = "/home/hudenxiao/tmdriver_ws/LLMtest/prompt.txt"
 
         if not os.path.exists(prompt_file):
@@ -84,7 +88,7 @@ def main():
 
         while True:
             user_input = input("我：")
-            if user_input.lower() in ["exit", "quit"]:
+            if user_input.lower() in ["exit", "quit","q"]:
                 break
 
             messages.append({"role": "user", "content": user_input})
@@ -103,7 +107,7 @@ def main():
                     print("無法理解您的指令，請重新輸入！")
                     continue
 
-                #回到上次位置
+                # 回到上次位置
                 if "return_last" in json_data and json_data["return_last"] is True:
                     if not os.path.exists(last_move_file):
                         print("目前沒有上一次的位置記錄。")
@@ -214,7 +218,12 @@ def main():
                 print(f"發生錯誤：{e}")
 
     finally:
-        stop_tmux_subscribers()
+        print("關閉 ROS2 系統 ...")
+        sub_process.terminate()
+        main_process.terminate()
+        time.sleep(1)
+        print("ROS2 已停止。")
+
 
 if __name__ == "__main__":
     main()
