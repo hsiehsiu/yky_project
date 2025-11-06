@@ -9,5 +9,11 @@ def generate_launch_description():
             executable='pose_subscriber',
             name='pose_subscriber',
             output='log'
+        ),
+        Node(
+            package='transfer',
+            executable='transfer',
+            name='transfer',
+            output='log'
         )
     ])
