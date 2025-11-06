@@ -42,17 +42,18 @@ class KeycapTransferNode(Node):
 
     # ========== 手臂座標回呼 ==========
     def pose_callback(self, msg: PoseStamped):
+        # 將單位轉成 mm
         self.arm_x = msg.pose.position.x * 1000
         self.arm_y = msg.pose.position.y * 1000
         self.arm_z = msg.pose.position.z * 1000
 
-        # 相機相對於手臂末端的位置（根據你的設定）
-        self.camera_x = self.arm_x + 30
-        self.camera_y = self.arm_y
-        self.camera_z = self.arm_z - 85
+        # 相機相對於手臂末端的位置（根據實際量測）
+        self.camera_x = self.arm_x + 30   # +X 方向 30 mm
+        self.camera_y = self.arm_y        # 相同 Y
+        self.camera_z = self.arm_z - 85   # 向下偏 85 mm
 
         self.get_logger().debug(
-            f"更新手臂位置: x={self.arm_x:.3f}, y={self.arm_y:.3f}, z={self.arm_z:.3f}"
+            f"更新手臂位置: x={self.arm_x:.1f}, y={self.arm_y:.1f}, z={self.arm_z:.1f}"
         )
 
     # ========== YOLO 偵測回呼 ==========
@@ -85,7 +86,7 @@ class KeycapTransferNode(Node):
             # --- 相機座標系 → 手臂座標系 ---
             arm_x = self.camera_x + position.y * 1000
             arm_y = self.camera_y + position.x * 1000
-            arm_z = self.camera_z - position.z * 1000 + 50  # for safety
+            arm_z = self.arm_z  # 直接使用手臂當前 z 座標
 
             self.keycap_coords[class_id] = {
                 "x": round(arm_x, 3),
@@ -99,7 +100,7 @@ class KeycapTransferNode(Node):
 
         # --- 寫入 keycap_coordinate.json ---
         try:
-            with open('/home/hudenxiao/tmdriver_ws/src/tmr_ros2/json/keycap_coordinate.json', 'w') as f:
+            with open('/home/hsiu/tmrdriver_ws/resource/json/keycap_coordinate.json', 'w') as f:
                 json.dump(self.keycap_coords, f, indent=4)
             self.get_logger().info("已更新 keycap_coordinate.json")
         except Exception as e:
