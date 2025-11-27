@@ -26,18 +26,13 @@ def ask_openrouter(messages, model="openai/gpt-3.5-turbo"):
 
 # ------------------ 啟動 ROS launch ------------------
 def start_ros_launch():
-    """
-    啟動main.launch.py
-    """
     print("啟動中...")
-
     main_process = subprocess.Popen(
         ["ros2", "launch", "bringup", "main.launch.py"],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE
     )
     time.sleep(2)
-
     print("ROS2 系統已啟動完成。")
     return main_process
 
@@ -67,10 +62,10 @@ def main():
         print("聊天啟動，輸入 'q' 離開。", flush=True)
 
         keycaps_file = "/home/hsiu/tmrdriver_ws/resource/json/keycap_coordinate.json"
-        feedback_file = "/home/hsiu/tmrdriver_ws/resource/json/feedback_pose.json"
-        move_file = "/home/hsiu/tmrdriver_ws/resource/json/move.json"
-        last_move_file = "/home/hsiu/tmrdriver_ws/resource/json/last_move.json"
-        prompt_file = "/home/hsiu/tmrdriver_ws/resource/json/prompt.txt"
+        feedback_file = "/home/hsiu/tmrdriver_ws/resource/json//feedback_pose.json"
+        move_file = "/home/hsiu/tmrdriver_ws/resource/json//move.json"
+        last_move_file = "/home/hsiu/tmrdriver_ws/resource/json//last_move.json"
+        prompt_file = "/home/hsiu/tmrdriver_ws/LLMtest/prompt.txt"
 
         if not os.path.exists(prompt_file):
             print(f"找不到 {prompt_file}，請先建立 system prompt 檔案")
@@ -139,12 +134,33 @@ def main():
                 # --- action 功能（吸盤控制） ---
                 elif "action" in json_data:
                     action = json_data["action"]
-
                     if action not in ["suck", "release", "pick", "place"]:
                         print(f"不支援的動作：{action}")
-                        continue                   
+                        continue
 
-                # --- keycap 功能（鍵帽組裝流程 with force feedback） ---
+                # 決定要 publish 的 Bool 值
+                    if action in ["suck", "pick"]:
+                        bool_value = True
+                    elif action in ["release", "place"]:
+                        bool_value = False
+
+                # 執行 ros2 topic pub --once /sucker_command std_msgs/msg/Bool "{data: true/false}"
+                    cmd = [
+                    "ros2", "topic", "pub", "--once",
+                    "/sucker_command", "std_msgs/msg/Bool",
+                    f'{{data: {str(bool_value).lower()}}}'
+                    ]
+
+                    print(f"執行吸盤指令: {action} → publish {bool_value}")
+                    try:
+                        subprocess.run(cmd, check=True)
+                    except subprocess.CalledProcessError as e:
+                        print(f"吸盤指令執行失敗：{e}")
+
+                    continue  # action 只負責吸盤，不需要做其他動作
+
+
+                # --- keycap 功能（鍵帽組裝流程，固定下壓 5 次） ---
                 elif "keycap" in json_data:
                     key_name = json_data["keycap"]
 
@@ -155,7 +171,7 @@ def main():
                         continue
 
                     # 讀取鍵盤目標座標（安全高度）
-                    keyboard_layout_file = "/home/hsiu/tmrdriver_ws/resource/json/keyboard_layout.json"
+                    keyboard_layout_file = "/home/hsiu/tmrdriver_ws/resource/json//keyboard_layout.json"
                     if not os.path.exists(keyboard_layout_file):
                         print(f"找不到 {keyboard_layout_file}")
                         continue
@@ -169,11 +185,8 @@ def main():
 
                     pos_place = keyboard_layout[key_name]
 
-                    # 吸盤高度與插入高度偏移
-                    pick_offset = -20      # 從安全高度向下 20mm 去吸鍵帽
-                    place_offset_start = -10  # 插入前靠近鍵盤 10mm
-                    press_step = 1.0         # 每次下壓 1mm
-                    force_threshold = 2.5    # 觸發判定力值 (可調)
+                    # 吸盤高度偏移
+                    pick_offset = -250      # 從安全高度向下吸鍵帽（可調）
 
                     # 姿態
                     feedback_pose = get_feedback_pose(feedback_file)
@@ -209,7 +222,7 @@ def main():
                     # 4. 回到安全高度
                     sequence.append({
                         "mode": "absolute",
-                        "x": pos_pick["x"], "y": pos_pick["y"], "z": 480.0,
+                        "x": pos_pick["x"], "y": pos_pick["y"], "z": 530.0,
                         "rx": rx, "ry": ry, "rz": rz
                     })
 
@@ -220,60 +233,32 @@ def main():
                         "rx": rx, "ry": ry, "rz": rz
                     })
 
-                    # 接近鍵盤位置
-                    z_current = pos_place["z"] + place_offset_start
+                    # 往下移動到鍵盤正上方
                     sequence.append({
                         "mode": "absolute",
-                        "x": pos_place["x"], "y": pos_place["y"], "z": z_current,
+                        "x": pos_place["x"], "y": pos_place["y"], "z": pos_place["z"] - 250,
                         "rx": rx, "ry": ry, "rz": rz
                     })
 
-                    # ------------------ 力回饋插入 ------------------
-                    force_file = "/home/hsiu/tmrdriver_ws/resource/json/force.json"
+                    # 接近鍵盤位置，固定下壓 N 次
+                    z_current = pos_place["z"] -250
+                    press_step = 1.0
+                    press_count = 5
 
-                    while True:
-                        # 每次壓 1mm
-                        z_next = z_current - press_step
-                        z_current = z_next
-
+                    for _ in range(press_count):
+                        z_current -= press_step
                         sequence.append({
                             "mode": "absolute",
-                            "x": pos_place["x"], "y": pos_place["y"], "z": z_current,
-                            "rx": rx, "ry": ry, "rz": rz
+                            "x": pos_place["x"],
+                            "y": pos_place["y"],
+                            "z": z_current,
+                            "rx": rx,
+                            "ry": ry,
+                            "rz": rz
                         })
+                        time.sleep(0.05)
 
-                        # 讀取 force.json
-                        if os.path.exists(force_file):
-                            try:
-                                with open(force_file, "r", encoding="utf-8") as f:
-                                    force_data = json.load(f)
-                                # 嘗試支援不同 key 名（fz 或 f_z）
-                                fz = force_data.get("z", force_data.get("f_z", 0))
-                            except Exception as e:
-                                print(f"讀取 force.json 發生錯誤: {e}")
-                                fz = 0
-                        else:
-                            fz = 0
-
-                        # 觸發插入完成
-                        if fz > force_threshold:
-                            print(f"> 力回饋達閾值 (fz = {fz}N)，鍵帽插入成功")
-                            break
-
-                        # 防止一直往下撞（安全檢查）
-                        if z_current - 125 < pos_place["z"] - 125 - 100 - 30: #125：吸盤長度，100：吸盤與鍵盤表面距離，30：下壓程度
-                            print(" 插入深度過大，中止！")
-                            break
-
-                        # 小等待，讓 force.json 有時間更新（可依實際情況調整）
-                        time.sleep(0.1)
-
-                    # ------------------ 回到安全高度 ------------------
-                    sequence.append({
-                        "mode": "absolute",
-                        "x": pos_place["x"], "y": pos_place["y"], "z": 480.0,
-                        "rx": rx, "ry": ry, "rz": rz
-                    })
+                    
 
                     json_data = {"assembly_sequence": sequence}
 
@@ -310,6 +295,7 @@ def main():
                             "ry": abs_pose[4],
                             "rz": abs_pose[5]
                         }
+
                 # --- movetokeycap 功能 ---
                 elif "movetokeycap" in json_data:
                     key_name = json_data["movetokeycap"]
@@ -338,6 +324,7 @@ def main():
                 else:
                     print("模型輸出不包含可執行的指令欄位。")
                     continue
+            
 
                 # 儲存上一次位置
                 with open(last_move_file, 'w', encoding="utf-8") as f:
@@ -347,9 +334,10 @@ def main():
                 with open(move_file, 'w', encoding="utf-8") as f:
                     json.dump(json_data, f, indent=2)
 
-                # 呼叫 C++ 節點執行（確保 send_movement 能處理 assembly_sequence/action）
+                # 呼叫 C++ 節點執行（確保 send_movement 處理 sequence/action）
                 subprocess.run(["ros2", "run", "arm_movement", "send_movement"])
-                subprocess.run(["ros2", "run", "arduino", "sucker"])
+                
+                
 
             except Exception as e:
                 print(f"發生錯誤：{e}")
