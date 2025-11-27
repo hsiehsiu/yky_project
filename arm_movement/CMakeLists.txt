@@ -85,3 +85,23 @@ install(TARGETS
 )
 
 ament_package()
+
+add_executable(initial_position 
+  src/initial_position.cpp
+)
+target_link_libraries(initial_position nlohmann_json::nlohmann_json)
+
+ament_target_dependencies(initial_position
+  rclcpp
+  std_msgs
+  sensor_msgs
+  tm_msgs
+  moveit_ros_planning_interface
+  geometry_msgs
+)
+target_link_libraries(initial_position nlohmann_json::nlohmann_json)
+
+install(TARGETS
+  initial_position
+  DESTINATION lib/${PROJECT_NAME}
+)
