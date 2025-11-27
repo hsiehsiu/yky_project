@@ -1,11 +1,12 @@
+#!/usr/bin/env python3
 import os
 import json
-import base64
 import requests
 import subprocess
+import time
 
 # ------------------ OpenRouter API ------------------
-API_KEY = "my API key"
+API_KEY = ""
 URL = "https://openrouter.ai/api/v1/chat/completions"
 
 headers = {
@@ -20,8 +21,21 @@ def ask_openrouter(messages, model="openai/gpt-3.5-turbo"):
     response = requests.post(URL, headers=headers, json=payload)
     if response.status_code != 200:
         print(f"錯誤 {response.status_code}: {response.text}")
-        return "[錯誤] 請確認 API Key 或模型名稱是否正確"
+        return '{"error": "API 請求失敗"}'
     return response.json()["choices"][0]["message"]["content"]
+
+# ------------------ 啟動 ROS launch ------------------
+def start_ros_launch():
+    subprocess.run(["ros2", "run", "arm_movement", "initial_position"])
+    print("啟動中...")
+    main_process = subprocess.Popen(
+        ["ros2", "launch", "bringup", "main.launch.py"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE
+    )
+    time.sleep(2)
+    print("ROS2 系統已啟動完成。")
+    return main_process
 
 # ------------------ JSON 讀取 ------------------
 def get_keycap_position(key_name, keycaps_file):
@@ -42,148 +56,306 @@ def get_feedback_pose(feedback_file):
 
 # ------------------ 主程式 ------------------
 def main():
-    print("聊天啟動，輸入 'exit' 離開。", flush=True)
+    print("初始化 ROS2 系統 ...")
+    main_process = start_ros_launch()
 
-    keycaps_file = "/home/hudenxiao/tmdriver_ws/src/tmr_ros2/json/keycap_coordinate.json"
-    feedback_file = "/home/hudenxiao/tmdriver_ws/src/tmr_ros2/json/feedback_pose.json"
-    move_file = "/home/hudenxiao/tmdriver_ws/src/tmr_ros2/json/move.json"
-    prompt_file = "/home/hudenxiao/tmdriver_ws/LLMtest/prompt.txt"   # <-- 外部 prompt 檔案
+    try:
+        print("聊天啟動，輸入 'q' 離開。", flush=True)
 
-    #prompt
-    if not os.path.exists(prompt_file):
-        print(f"找不到 {prompt_file}，請先建立 system prompt 檔案")
-        return
-    with open(prompt_file, "r", encoding="utf-8") as f:
-        system_prompt = f.read()
+        keycaps_file = "/home/hsiu/tmrdriver_ws/resource/json/keycap_coordinate.json"
+        feedback_file = "/home/hsiu/tmrdriver_ws/resource/json//feedback_pose.json"
+        move_file = "/home/hsiu/tmrdriver_ws/resource/json//move.json"
+        last_move_file = "/home/hsiu/tmrdriver_ws/resource/json//last_move.json"
+        prompt_file = "/home/hsiu/tmrdriver_ws/LLMtest/prompt.txt"
 
-    messages = [{
-        "role": "system",
-        "content": system_prompt
-    }]
+        if not os.path.exists(prompt_file):
+            print(f"找不到 {prompt_file}，請先建立 system prompt 檔案")
+            return
+        with open(prompt_file, "r", encoding="utf-8") as f:
+            system_prompt = f.read()
 
-    while True:
-        user_input = input("我：")
-        if user_input.lower() in ["exit", "quit"]:
-            break
+        messages = [{"role": "system", "content": system_prompt}]
 
-        messages.append({"role": "user", "content": user_input})
-        try:
-            reply = ask_openrouter(messages)
-            print(f"機器人：{reply}")
-            messages.append({"role": "assistant", "content": reply})
+        while True:
+            user_input = input("我：")
+            if user_input.lower() in ["exit", "quit","q"]:
+                break
 
-            json_data = json.loads(reply)
+            messages.append({"role": "user", "content": user_input})
+            try:
+                reply = ask_openrouter(messages)
+                print(f"機器人：{reply}")
+                messages.append({"role": "assistant", "content": reply})
 
-            # --- swap 功能 ---
-            if "swap" in json_data:
-                k1, k2 = json_data["swap"]
-                pos1 = get_keycap_position(k1, keycaps_file)
-                pos2 = get_keycap_position(k2, keycaps_file)
-                if not pos1 or not pos2:
-                    print(f"找不到鍵帽 {k1} 或 {k2} 的座標，請檢查 {keycaps_file}")
+                try:
+                    json_data = json.loads(reply)
+                except json.JSONDecodeError:
+                    print("無法解析，請重新輸入。")
                     continue
 
-                feedback_pose = get_feedback_pose(feedback_file)
-                if feedback_pose:
-                    rx, ry, rz = feedback_pose["tool_pose"]["rx"], feedback_pose["tool_pose"]["ry"], feedback_pose["tool_pose"]["rz"]
-                else:
-                    rx, ry, rz = -173.0, -12.27, 129.31
+                if "error" in json_data:
+                    print("無法理解您的指令，請重新輸入！")
+                    continue
 
-                # 閒置區
-                idle_pos = {"x": 500.0, "y": -60.0, "z": 400.0}
+                # 回到上次位置
+                if "return_last" in json_data and json_data["return_last"] is True:
+                    if not os.path.exists(last_move_file):
+                        print("目前沒有上一次的位置記錄。")
+                        continue
+                    with open(last_move_file, "r", encoding="utf-8") as f:
+                        json_data = json.load(f)
+                    print("回到上一次的座標。")
 
-                # 交換流程
-                swap_instructions = [
-                    {"mode": "absolute", "x": pos1["x"], "y": pos1["y"], "z": pos1["z"], "rx": rx, "ry": ry, "rz": rz, "action": "pick"},
-                    {"mode": "absolute", "x": idle_pos["x"], "y": idle_pos["y"], "z": idle_pos["z"], "rx": rx, "ry": ry, "rz": rz, "action": "place"},
-                    {"mode": "absolute", "x": pos2["x"], "y": pos2["y"], "z": pos2["z"], "rx": rx, "ry": ry, "rz": rz, "action": "pick"},
-                    {"mode": "absolute", "x": pos1["x"], "y": pos1["y"], "z": pos1["z"], "rx": rx, "ry": ry, "rz": rz, "action": "place"},
-                    {"mode": "absolute", "x": idle_pos["x"], "y": idle_pos["y"], "z": idle_pos["z"], "rx": rx, "ry": ry, "rz": rz, "action": "pick"},
-                    {"mode": "absolute", "x": pos2["x"], "y": pos2["y"], "z": pos2["z"], "rx": rx, "ry": ry, "rz": rz, "action": "place"}
-                ]
+                # --- swap 功能 ---
+                elif "swap" in json_data:
+                    k1, k2 = json_data["swap"]
+                    pos1 = get_keycap_position(k1, keycaps_file)
+                    pos2 = get_keycap_position(k2, keycaps_file)
+                    if not pos1 or not pos2:
+                        print(f"找不到鍵帽 {k1} 或 {k2} 的座標")
+                        continue
 
-                json_data = {"swap_sequence": swap_instructions}
-                print(f"執行鍵帽 {k1} 與 {k2} 的交換動作（使用閒置區暫存）")
-
-            # --- keycap 功能 ---
-            elif "keycap" in json_data:
-                key_name = json_data["keycap"]
-                pos = get_keycap_position(key_name, keycaps_file)
-                if pos:
                     feedback_pose = get_feedback_pose(feedback_file)
                     if feedback_pose:
                         rx, ry, rz = feedback_pose["tool_pose"]["rx"], feedback_pose["tool_pose"]["ry"], feedback_pose["tool_pose"]["rz"]
                     else:
-                        rx, ry, rz = 180.0, 0, 133
+                        rx, ry, rz = -173.0, -12.27, 129.31
 
-                    json_data = {
+                    idle_pos = {"x": 500.0, "y": -60.0, "z": 400.0}
+                    swap_instructions = [
+                        {"mode": "absolute", "x": pos1["x"], "y": pos1["y"], "z": pos1["z"], "rx": rx, "ry": ry, "rz": rz, "action": "pick"},
+                        {"mode": "absolute", "x": idle_pos["x"], "y": idle_pos["y"], "z": idle_pos["z"], "rx": rx, "ry": ry, "rz": rz, "action": "place"},
+                        {"mode": "absolute", "x": pos2["x"], "y": pos2["y"], "z": pos2["z"], "rx": rx, "ry": ry, "rz": rz, "action": "pick"},
+                        {"mode": "absolute", "x": pos1["x"], "y": pos1["y"], "z": pos1["z"], "rx": rx, "ry": ry, "rz": rz, "action": "place"},
+                        {"mode": "absolute", "x": idle_pos["x"], "y": idle_pos["y"], "z": idle_pos["z"], "rx": rx, "ry": ry, "rz": rz, "action": "pick"},
+                        {"mode": "absolute", "x": pos2["x"], "y": pos2["y"], "z": pos2["z"], "rx": rx, "ry": ry, "rz": rz, "action": "place"}
+                    ]
+                    json_data = {"swap_sequence": swap_instructions}
+
+                # --- action 功能（吸盤控制） ---
+                elif "action" in json_data:
+                    action = json_data["action"]
+                    if action not in ["suck", "release", "pick", "place"]:
+                        print(f"不支援的動作：{action}")
+                        continue
+
+                # 決定要 publish 的 Bool 值
+                    if action in ["suck", "pick"]:
+                        bool_value = True
+                    elif action in ["release", "place"]:
+                        bool_value = False
+
+                # 執行 ros2 topic pub --once /sucker_command std_msgs/msg/Bool "{data: true/false}"
+                    cmd = [
+                    "ros2", "topic", "pub", "--once",
+                    "/sucker_command", "std_msgs/msg/Bool",
+                    f'{{data: {str(bool_value).lower()}}}'
+                    ]
+
+                    print(f"執行吸盤指令: {action} → publish {bool_value}")
+                    try:
+                        subprocess.run(cmd, check=True)
+                    except subprocess.CalledProcessError as e:
+                        print(f"吸盤指令執行失敗：{e}")
+
+                    continue  # action 只負責吸盤，不需要做其他動作
+
+
+                # --- keycap 功能（鍵帽組裝流程，固定下壓 5 次） ---
+                elif "keycap" in json_data:
+                    key_name = json_data["keycap"]
+
+                    # 讀取鍵帽座標（安全高度）
+                    pos_pick = get_keycap_position(key_name, keycaps_file)
+                    if not pos_pick:
+                        print(f"找不到鍵帽 {key_name} 的座標")
+                        continue
+
+                    # 讀取鍵盤目標座標（安全高度）
+                    keyboard_layout_file = "/home/hsiu/tmrdriver_ws/resource/json//keyboard_layout.json"
+                    if not os.path.exists(keyboard_layout_file):
+                        print(f"找不到 {keyboard_layout_file}")
+                        continue
+
+                    with open(keyboard_layout_file, "r", encoding="utf-8") as f:
+                        keyboard_layout = json.load(f)
+
+                    if key_name not in keyboard_layout:
+                        print(f"keyboard_layout 中找不到 {key_name} 的座標")
+                        continue
+
+                    pos_place = keyboard_layout[key_name]
+
+                    # 吸盤高度偏移
+                    pick_offset = -170     # 從安全高度向下吸鍵帽（可調）
+
+                    # 姿態
+                    feedback_pose = get_feedback_pose(feedback_file)
+                    if feedback_pose:
+                        rx = feedback_pose["tool_pose"]["rx"]
+                        ry = feedback_pose["tool_pose"]["ry"]
+                        rz = feedback_pose["tool_pose"]["rz"]
+                    else:
+                        rx, ry, rz = 180.0, 0.0, 133.0
+
+                    sequence = []
+
+                    # ------------------ 拾取鍵帽 ------------------
+                    # 1. 移動到鍵帽安全高度
+                    sequence.append({
                         "mode": "absolute",
-                        "x": pos["x"],
-                        "y": pos["y"],
-                        "z": pos["z"],
-                        "rx": rx,
-                        "ry": ry,
-                        "rz": rz,
-                        "action": "place"
-                    }
-                    print(f"移動到鍵帽 {key_name}")
+                        "x": pos_pick["x"]+3, "y": pos_pick["y"]-20, "z": pos_pick["z"],
+                        "rx": rx, "ry": ry, "rz": rz
+                    })
+
+
+                    # 2. 向下到鍵帽上方準備吸附
+                    sequence.append({
+                        "mode": "absolute",
+                        "x": pos_pick["x"]+3, "y": pos_pick["y"]-20, "z": pos_pick["z"] + pick_offset,
+                        "rx": rx, "ry": ry, "rz": rz
+                    })
+
+                    # 3. 開啟吸盤
+                    sequence.append({   
+                        "action": "suck"
+                    })
+                    
+
+                    # 4. 回到安全高度
+                    sequence.append({
+                        "mode": "absolute",
+                        "x": pos_pick["x"], "y": pos_pick["y"], "z": 440.0,
+                        "rx": rx, "ry": ry, "rz": rz
+                    })
+                    
+                    sequence.append({   
+                        "action": "release"
+                    })
+                
+
+                    ''' ------------------ 移動到鍵盤放置點 ------------------
+                    sequence.append({
+                        "mode": "absolute",
+                        "x": pos_place["x"], "y": pos_place["y"], "z": pos_place["z"],
+                        "rx": rx, "ry": ry, "rz": rz
+                    })
+
+                    # 往下移動到鍵盤正上方
+                    sequence.append({
+                        "mode": "absolute",
+                        "x": pos_place["x"], "y": pos_place["y"], "z": pos_place["z"] - 155,
+                        "rx": rx, "ry": ry, "rz": rz
+                    })
+
+                    # 接近鍵盤位置，固定下壓 N 次
+                    z_current = pos_place["z"] -155
+                    press_step = 1.0
+                    press_count = 5
+
+                    for _ in range(press_count):
+                        z_current -= press_step
+                        sequence.append({
+                            "mode": "absolute",
+                            "x": pos_place["x"],
+                            "y": pos_place["y"],
+                            "z": z_current,
+                            "rx": rx,
+                            "ry": ry,
+                            "rz": rz
+                        })
+                        time.sleep(0.05)'''
+
+                    
+
+                    json_data = {"assembly_sequence": sequence}
+
+                # --- 相對 / 絕對移動 ---
+                elif "mode" in json_data:
+                    feedback_pose = get_feedback_pose(feedback_file)
+                    if not feedback_pose:
+                        print("找不到手臂當前座標，無法執行")
+                        continue
+
+                    abs_pose = [
+                        feedback_pose["tool_pose"]["x"],
+                        feedback_pose["tool_pose"]["y"],
+                        feedback_pose["tool_pose"]["z"],
+                        feedback_pose["tool_pose"]["rx"],
+                        feedback_pose["tool_pose"]["ry"],
+                        feedback_pose["tool_pose"]["rz"]
+                    ]
+
+                    if json_data["mode"] == "relative":
+                        abs_pose[0] += json_data.get("x", 0.0)
+                        abs_pose[1] += json_data.get("y", 0.0)
+                        abs_pose[2] += json_data.get("z", 0.0)
+                        abs_pose[3] += json_data.get("rx", 0.0)
+                        abs_pose[4] += json_data.get("ry", 0.0)
+                        abs_pose[5] += json_data.get("rz", 0.0)
+
+                        json_data = {
+                            "mode": "absolute",
+                            "x": abs_pose[0],
+                            "y": abs_pose[1],
+                            "z": abs_pose[2],
+                            "rx": abs_pose[3],
+                            "ry": abs_pose[4],
+                            "rz": abs_pose[5]
+                        }
+
+                # --- movetokeycap 功能 ---
+                elif "movetokeycap" in json_data:
+                    key_name = json_data["movetokeycap"]
+                    pos = get_keycap_position(key_name, keycaps_file)
+                    if pos:
+                        feedback_pose = get_feedback_pose(feedback_file)
+                        if feedback_pose:
+                            rx, ry, rz = feedback_pose["tool_pose"]["rx"], feedback_pose["tool_pose"]["ry"], feedback_pose["tool_pose"]["rz"]
+                        else:
+                            rx, ry, rz = 180.0, 0, 133
+
+                        json_data = {
+                            "mode": "absolute",
+                            "x": pos["x"] +5,
+                            "y": pos["y"]-20,
+                            "z": pos["z"],
+                            "rx": rx,
+                            "ry": ry,
+                            "rz": rz,
+                            "action": "place"
+                        }
+                    else:
+                        print(f"找不到鍵帽 {key_name} 的座標")
+                        continue    
+
                 else:
-                    print(f"找不到鍵帽 {key_name} 的座標")
+                    print("模型輸出不包含可執行的指令欄位。")
                     continue
+            
 
-            # --- 相對 / 絕對移動 ---
-            elif "mode" in json_data:
-                feedback_pose = get_feedback_pose(feedback_file)
-                if not feedback_pose:
-                    print("找不到手臂當前座標，無法執行")
-                    continue
+                # 儲存上一次位置
+                with open(last_move_file, 'w', encoding="utf-8") as f:
+                    json.dump(json_data, f, indent=2)
 
-                abs_pose = [
-                    feedback_pose["tool_pose"]["x"],
-                    feedback_pose["tool_pose"]["y"],
-                    feedback_pose["tool_pose"]["z"],
-                    feedback_pose["tool_pose"]["rx"],
-                    feedback_pose["tool_pose"]["ry"],
-                    feedback_pose["tool_pose"]["rz"]
-                ]
+                # 寫入 move.json（send_movement 會讀取並執行）
+                with open(move_file, 'w', encoding="utf-8") as f:
+                    json.dump(json_data, f, indent=2)
 
-                if json_data["mode"] == "relative":
-                    dx = json_data.get("x", 0.0)
-                    dy = json_data.get("y", 0.0)
-                    dz = json_data.get("z", 0.0)
-                    drx = json_data.get("rx", 0.0)
-                    dry = json_data.get("ry", 0.0)
-                    drz = json_data.get("rz", 0.0)
+                # 呼叫 C++ 節點執行（確保 send_movement 處理 sequence/action）
+                subprocess.run(["ros2", "run", "arm_movement", "send_movement"])
+                
+                
 
-                    abs_pose[0] += dx
-                    abs_pose[1] += dy
-                    abs_pose[2] += dz
-                    abs_pose[3] += drx
-                    abs_pose[4] += dry
-                    abs_pose[5] += drz
+            except Exception as e:
+                print(f"發生錯誤：{e}")
 
-                    json_data = {
-                        "mode": "absolute",
-                        "x": abs_pose[0],
-                        "y": abs_pose[1],
-                        "z": abs_pose[2],
-                        "rx": abs_pose[3],
-                        "ry": abs_pose[4],
-                        "rz": abs_pose[5]
-                    }
+    finally:
+        print("關閉 ROS2 系統 ...")
+        main_process.terminate()
+        time.sleep(1)
+        print("ROS2 已停止。")
 
-                    print(f"已轉換為絕對座標：{json_data}")
-
-            # 儲存 JSON
-            with open(move_file, 'w', encoding="utf-8") as f:
-                json.dump(json_data, f, indent=2)
-            print(f"已將指令儲存至 {move_file}")
-
-            # 執行 ROS2
-            subprocess.run(["ros2", "run", "arm_movement", "send_movement"])
-
-        except Exception as e:
-            print(f"發生錯誤：{e}")
 
 if __name__ == "__main__":
     main()
