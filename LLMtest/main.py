@@ -203,7 +203,7 @@ def main():
                         continue
 
                     # 讀取鍵盤目標座標（安全高度）
-                    keyboard_layout_file = "/home/hsiu/tmrdriver_ws/resource/json//keyboard_layout.json"
+                    keyboard_layout_file = "/home/hsiu/tmrdriver_ws/resource/json/keyboard_layout.json"
                     if not os.path.exists(keyboard_layout_file):
                         print(f"找不到 {keyboard_layout_file}")
                         continue
