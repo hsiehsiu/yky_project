@@ -203,7 +203,7 @@ def main():
                         continue
 
                     # 讀取鍵盤目標座標（安全高度）
-                    keyboard_layout_file = "/home/hsiu/tmrdriver_ws/resource/json/keyboard_layout.json"
+                    keyboard_layout_file = "/home/hsiu/tmrdriver_ws/resource/json//keyboard_layout.json"
                     if not os.path.exists(keyboard_layout_file):
                         print(f"找不到 {keyboard_layout_file}")
                         continue
@@ -284,6 +284,94 @@ def main():
                     })                   
 
                     json_data = {"assembly_sequence": sequence}
+                    
+                elif "spell" in json_data:
+                    word = json_data["spell"].upper()
+                    place_base = {"x": 550.0, "y": 30.0, "z": 440.0}
+                    x_step = 35.0
+                    if len(word)!= len(set(word)):
+                        print("包含重複字母，請輸入別的單字")
+                        continue
+                    spell_sequence = []
+
+                    for idx, ch in enumerate(word):
+                        pos = get_keycap_position(ch, keycaps_file)
+                        if not pos:
+                            print(f"找不到鍵帽 {ch} 的座標")
+                            continue
+
+                        place_x = place_base["x"]
+                        place_y = place_base["y"] + idx * x_step
+                        place_z = place_base["z"]
+
+        # --- 1. 前往鍵盤位置上方 ---
+                        spell_sequence.append({
+                            "mode": "absolute",
+                            "x": pos["x"] + 3,
+                            "y": pos["y"] - 20,
+                            "z": pos["z"],
+                            "rx": rx, "ry": ry, "rz": rz
+                        })
+        # --- 2. 下降吸取 ---
+                        spell_sequence.append({
+                            "mode": "absolute",
+                            "x": pos["x"] + 3,
+                            "y": pos["y"] - 20,
+                            "z": pos["z"] - 170,
+                            "rx": rx, "ry": ry, "rz": rz
+                        })
+                        spell_sequence.append({"action": "suck"})
+
+        # --- 3. 上升到安全高度 ---
+                        spell_sequence.append({
+                            "mode": "absolute",
+                            "x": pos["x"] + 3,
+                            "y": pos["y"] - 20,
+                            "z": 440,
+                            "rx": rx, "ry": ry, "rz": rz
+                        })
+
+        # --- 5. 移到排字位置上方 ---
+                        spell_sequence.append({
+                            "mode": "absolute",
+                            "x": place_x,
+                            "y": place_y,
+                            "z": place_z,
+                            "rx": rx, "ry": ry, "rz": rz
+                        })
+
+        # --- 6. 下降到放置高度 ---
+                        spell_sequence.append({
+                            "mode": "absolute",
+                            "x": place_x,
+                            "y": place_y,
+                            "z": place_z - 180,
+                            "rx": rx, "ry": ry, "rz": rz
+                        })
+
+        # --- 7. 放下鍵帽 ---
+                        spell_sequence.append({"action": "release"})
+
+        # --- 8. 上升回安全高度 ---
+                        spell_sequence.append({
+                            "mode": "absolute",
+                            "x": place_x,
+                            "y": place_y,
+                            "z": 440,
+                            "rx": rx, "ry": ry, "rz": rz
+                        })
+
+        # --- 9. 回原點 ---
+                        spell_sequence.append({
+                            "mode": "absolute",
+                            "x": 433.72,
+                            "y": 78.29,
+                            "z": 440,
+                            "rx": rx, "ry": ry, "rz": rz
+                        })
+
+                    json_data = {"spell_sequence": spell_sequence}
+
 
                 # --- 相對 / 絕對移動 ---
                 elif "mode" in json_data:
