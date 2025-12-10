@@ -63,7 +63,7 @@ def main():
     try:
         print("聊天啟動，輸入 'q' 離開。", flush=True)
 
-        keycaps_file = "/home/hsiu/tmrdriver_ws/resource/json/keycap_coordinate.json"
+        keycaps_file = "/home/hsiu/tmrdriver_ws/resource/json/keyboard_layout.json"
         feedback_file = "/home/hsiu/tmrdriver_ws/resource/json//feedback_pose.json"
         move_file = "/home/hsiu/tmrdriver_ws/resource/json//move.json"
         last_move_file = "/home/hsiu/tmrdriver_ws/resource/json//last_move.json"
@@ -122,7 +122,7 @@ def main():
                     else:
                         rx, ry, rz = -173.0, -12.27, 129.31
 
-                    idle_pos = {"x": 500.0, "y": 78.29, "z": 440.0}
+                    idle_pos = {"x": 410.822, "y": -30.663, "z": 440.0}
                     swap_instructions = [
                         # 拔起第一個鍵帽
                         {"mode": "absolute", "x": pos1["x"]+3, "y": pos1["y"]-20, "z": pos1["z"], "rx": rx, "ry": ry, "rz": rz},
@@ -132,15 +132,16 @@ def main():
 
                         # 移動到暫放區並回到原點
                         {"mode": "absolute", "x": idle_pos["x"], "y": idle_pos["y"], "z": idle_pos["z"], "rx": rx, "ry": ry, "rz": rz},
-                        {"mode": "absolute", "x": idle_pos["x"], "y": idle_pos["y"], "z": idle_pos["z"] - 180, "rx": rx, "ry": ry, "rz": rz},
+                        {"mode": "absolute", "x": idle_pos["x"], "y": idle_pos["y"], "z": idle_pos["z"] - 160, "rx": rx, "ry": ry, "rz": rz},
+                        time.sleep(0.7),
                         {"action": "release"},
-                        {"mode": "absolute", "x": 433.72, "y": 78.29, "z": 440, "rx": rx, "ry": ry, "rz": rz},
+                        {"mode": "absolute", "x": idle_pos["x"], "y": idle_pos["y"], "z": 440, "rx": rx, "ry": ry, "rz": rz},
 
                         # 拔起第二個鍵帽回到原點
                         {"mode": "absolute", "x": pos2["x"]+3, "y": pos2["y"]-20, "z": pos2["z"], "rx": rx, "ry": ry, "rz": rz},
                         {"mode": "absolute", "x": pos2["x"]+3, "y": pos2["y"]-20, "z": pos2["z"]-170, "rx": rx, "ry": ry, "rz": rz},
                         {"action": "suck"},
-                        {"mode": "absolute", "x": 433.72, "y": 78.29, "z": 440, "rx": rx, "ry": ry, "rz": rz},
+                        {"mode": "absolute", "x": pos2["x"]+3, "y": pos2["y"]-20, "z": 440, "rx": rx, "ry": ry, "rz": rz},
 
                         # 放到第一個鍵帽原本的空位
                         {"mode": "absolute", "x": pos1["x"]+3, "y": pos1["y"]-20, "z": pos1["z"], "rx": rx, "ry": ry, "rz": rz},
@@ -150,9 +151,10 @@ def main():
 
                         # 在暫放區把第一個鍵帽吸起
                         {"mode": "absolute", "x": idle_pos["x"], "y": idle_pos["y"], "z": idle_pos["z"], "rx": rx, "ry": ry, "rz": rz},
-                        {"mode": "absolute", "x": idle_pos["x"], "y": idle_pos["y"], "z": idle_pos["z"] - 180, "rx": rx, "ry": ry, "rz": rz},
+                        {"mode": "absolute", "x": idle_pos["x"], "y": idle_pos["y"], "z": idle_pos["z"] - 160, "rx": rx, "ry": ry, "rz": rz},
                         {"action": "suck"},
-                        {"mode": "absolute", "x": 433.72, "y": 78.29, "z": 440, "rx": rx, "ry": ry, "rz": rz},
+                        {"mode": "absolute", "x": idle_pos["x"], "y": idle_pos["y"], "z": idle_pos["z"] - 150, "rx": rx, "ry": ry, "rz": rz},
+                        
 
                         # 放到第二個鍵帽原本的空位，完成互換並回到原點
                         {"mode": "absolute", "x": pos2["x"]+3, "y": pos2["y"]-20, "z": pos2["z"], "rx": rx, "ry": ry, "rz": rz},
@@ -196,7 +198,7 @@ def main():
                     key_name = json_data["keycap"]
 
                     # 讀取鍵帽座標（安全高度）
-                    idle_pos = {"x": 500.0, "y": 78.29, "z": 440.0}
+                    idle_pos = {"x": 575.0, "y": -30, "z": 440.0}
                     pos_pick = get_keycap_position(key_name, keycaps_file)
                     if not pos_pick:
                         print(f"找不到鍵帽 {key_name} 的座標")
