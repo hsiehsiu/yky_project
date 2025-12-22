@@ -17,6 +17,13 @@ headers = {
     "X-Title": "TerminalChatLLM"
 }
 
+ROW_OFFSETS = {
+    "OFFSET_Q": {"x": -1.0, "y": 0.0,  "z": -158.0}, 
+    "OFFSET_A": {"x": -0.5, "y": 0.0,  "z": -161.5},
+    "OFFSET_Z": {"x": 0.0, "y": 0.0, "z": -160.0},
+    "OFFSET_DEFAULT": {"x": 0.0, "y": 0.0, "z": 0.0}
+}
+
 def ask_openrouter(messages, model="openai/gpt-3.5-turbo"):
     payload = {"model": model, "messages": messages, "temperature": 0.7}
     response = requests.post(URL, headers=headers, json=payload)
@@ -122,43 +129,43 @@ def main():
                     else:
                         rx, ry, rz = -173.0, -12.27, 129.31
 
-                    idle_pos = {"x": 410.822, "y": -30.663, "z": 440.0}
+                    idle_pos = {"x": 409, "y": -30.663, "z": 440.0}
                     swap_instructions = [
                         # 拔起第一個鍵帽
                         {"mode": "absolute", "x": pos1["x"]+3, "y": pos1["y"]-20, "z": pos1["z"], "rx": rx, "ry": ry, "rz": rz},
-                        {"mode": "absolute", "x": pos1["x"]+3, "y": pos1["y"]-20, "z": pos1["z"] - 170, "rx": rx, "ry": ry, "rz": rz},
+                        {"mode": "absolute", "x": pos1["x"]+3, "y": pos1["y"]-20, "z": pos1["z"] - 160, "rx": rx, "ry": ry, "rz": rz},
                         {"action": "suck"},
                         {"mode": "absolute", "x": pos1["x"]+3, "y": pos1["y"]-20, "z": 440, "rx": rx, "ry": ry, "rz": rz},
 
                         # 移動到暫放區並回到原點
                         {"mode": "absolute", "x": idle_pos["x"], "y": idle_pos["y"], "z": idle_pos["z"], "rx": rx, "ry": ry, "rz": rz},
-                        {"mode": "absolute", "x": idle_pos["x"], "y": idle_pos["y"], "z": idle_pos["z"] - 160, "rx": rx, "ry": ry, "rz": rz},
+                        {"mode": "absolute", "x": idle_pos["x"], "y": idle_pos["y"], "z": idle_pos["z"] - 155, "rx": rx, "ry": ry, "rz": rz},
                         time.sleep(0.7),
                         {"action": "release"},
                         {"mode": "absolute", "x": idle_pos["x"], "y": idle_pos["y"], "z": 440, "rx": rx, "ry": ry, "rz": rz},
 
                         # 拔起第二個鍵帽回到原點
                         {"mode": "absolute", "x": pos2["x"]+3, "y": pos2["y"]-20, "z": pos2["z"], "rx": rx, "ry": ry, "rz": rz},
-                        {"mode": "absolute", "x": pos2["x"]+3, "y": pos2["y"]-20, "z": pos2["z"]-170, "rx": rx, "ry": ry, "rz": rz},
+                        {"mode": "absolute", "x": pos2["x"]+3, "y": pos2["y"]-20, "z": pos2["z"]-160, "rx": rx, "ry": ry, "rz": rz},
                         {"action": "suck"},
                         {"mode": "absolute", "x": pos2["x"]+3, "y": pos2["y"]-20, "z": 440, "rx": rx, "ry": ry, "rz": rz},
 
                         # 放到第一個鍵帽原本的空位
                         {"mode": "absolute", "x": pos1["x"]+3, "y": pos1["y"]-20, "z": pos1["z"], "rx": rx, "ry": ry, "rz": rz},
-                        {"mode": "absolute", "x": pos1["x"]+3, "y": pos1["y"]-20, "z": pos1["z"] - 170, "rx": rx, "ry": ry, "rz": rz},
+                        {"mode": "absolute", "x": pos1["x"]+3, "y": pos1["y"]-20, "z": pos1["z"] - 160, "rx": rx, "ry": ry, "rz": rz},
                         {"action": "release"},
                         {"mode": "absolute", "x": pos1["x"]+3, "y": pos1["y"]-20, "z": 440, "rx": rx, "ry": ry, "rz": rz},
 
                         # 在暫放區把第一個鍵帽吸起
                         {"mode": "absolute", "x": idle_pos["x"], "y": idle_pos["y"], "z": idle_pos["z"], "rx": rx, "ry": ry, "rz": rz},
-                        {"mode": "absolute", "x": idle_pos["x"], "y": idle_pos["y"], "z": idle_pos["z"] - 160, "rx": rx, "ry": ry, "rz": rz},
+                        {"mode": "absolute", "x": idle_pos["x"], "y": idle_pos["y"], "z": idle_pos["z"] - 155, "rx": rx, "ry": ry, "rz": rz},
                         {"action": "suck"},
-                        {"mode": "absolute", "x": idle_pos["x"], "y": idle_pos["y"], "z": idle_pos["z"] - 150, "rx": rx, "ry": ry, "rz": rz},
+                        {"mode": "absolute", "x": idle_pos["x"], "y": idle_pos["y"], "z": idle_pos["z"], "rx": rx, "ry": ry, "rz": rz},
                         
 
                         # 放到第二個鍵帽原本的空位，完成互換並回到原點
-                        {"mode": "absolute", "x": pos2["x"]+3, "y": pos2["y"]-20, "z": pos2["z"], "rx": rx, "ry": ry, "rz": rz},
-                        {"mode": "absolute", "x": pos2["x"]+3, "y": pos2["y"]-20, "z": pos2["z"]-170, "rx": rx, "ry": ry, "rz": rz},
+                        {"mode": "absolute", "x": pos2["x"]+2, "y": pos2["y"]-20, "z": pos2["z"], "rx": rx, "ry": ry, "rz": rz},
+                        {"mode": "absolute", "x": pos2["x"]+2, "y": pos2["y"]-20, "z": pos2["z"]-160, "rx": rx, "ry": ry, "rz": rz},
                         {"action": "release"},
                         {"mode": "absolute", "x": 433.72, "y": 78.29, "z": 440, "rx": rx, "ry": ry, "rz": rz}
                     ]
@@ -198,7 +205,7 @@ def main():
                     key_name = json_data["keycap"]
 
                     # 讀取鍵帽座標（安全高度）
-                    idle_pos = {"x": 575.0, "y": -30, "z": 440.0}
+                    idle_pos = {"x": 409.0, "y": -30.663, "z": 440.0}
                     pos_pick = get_keycap_position(key_name, keycaps_file)
                     if not pos_pick:
                         print(f"找不到鍵帽 {key_name} 的座標")
@@ -220,7 +227,7 @@ def main():
                     pos_place = keyboard_layout[key_name]
 
                     # 吸盤高度偏移
-                    pick_offset = -180     # 從安全高度向下吸鍵帽（可調）
+                    pick_offset = -160     # 從安全高度向下吸鍵帽（可調）
 
                     # 姿態
                     feedback_pose = get_feedback_pose(feedback_file)
@@ -256,9 +263,11 @@ def main():
                     # 4. 回到安全高度
                     sequence.append({
                         "mode": "absolute",
-                        "x": 433.72, "y": 78.29, "z": 440.0,
+                        "x": idle_pos["x"], "y": idle_pos["y"], "z": idle_pos["z"],
                         "rx": rx, "ry": ry, "rz": rz
                     })
+
+                    
 
                     #------------------ 移動到鍵盤放置點 ------------------
                     sequence.append({
@@ -270,7 +279,7 @@ def main():
                     # 往下移動到鍵盤正上方
                     sequence.append({
                         "mode": "absolute",
-                        "x": pos_place["x"]+3, "y": pos_place["y"]-20, "z": pos_place["z"] - 170,
+                        "x": pos_place["x"]+3, "y": pos_place["y"]-20, "z": pos_place["z"] - 160,
                         "rx": rx, "ry": ry, "rz": rz
                     })
 
@@ -287,92 +296,7 @@ def main():
 
                     json_data = {"assembly_sequence": sequence}
                     
-                elif "spell" in json_data:
-                    word = json_data["spell"].upper()
-                    place_base = {"x": 550.0, "y": 30.0, "z": 440.0}
-                    x_step = 35.0
-                    if len(word)!= len(set(word)):
-                        print("包含重複字母，請輸入別的單字")
-                        continue
-                    spell_sequence = []
-
-                    for idx, ch in enumerate(word):
-                        pos = get_keycap_position(ch, keycaps_file)
-                        if not pos:
-                            print(f"找不到鍵帽 {ch} 的座標")
-                            continue
-
-                        place_x = place_base["x"]
-                        place_y = place_base["y"] + idx * x_step
-                        place_z = place_base["z"]
-
-        # --- 1. 前往鍵盤位置上方 ---
-                        spell_sequence.append({
-                            "mode": "absolute",
-                            "x": pos["x"] + 3,
-                            "y": pos["y"] - 20,
-                            "z": pos["z"],
-                            "rx": rx, "ry": ry, "rz": rz
-                        })
-        # --- 2. 下降吸取 ---
-                        spell_sequence.append({
-                            "mode": "absolute",
-                            "x": pos["x"] + 3,
-                            "y": pos["y"] - 20,
-                            "z": pos["z"] - 170,
-                            "rx": rx, "ry": ry, "rz": rz
-                        })
-                        spell_sequence.append({"action": "suck"})
-
-        # --- 3. 上升到安全高度 ---
-                        spell_sequence.append({
-                            "mode": "absolute",
-                            "x": pos["x"] + 3,
-                            "y": pos["y"] - 20,
-                            "z": 440,
-                            "rx": rx, "ry": ry, "rz": rz
-                        })
-
-        # --- 5. 移到排字位置上方 ---
-                        spell_sequence.append({
-                            "mode": "absolute",
-                            "x": place_x,
-                            "y": place_y,
-                            "z": place_z,
-                            "rx": rx, "ry": ry, "rz": rz
-                        })
-
-        # --- 6. 下降到放置高度 ---
-                        spell_sequence.append({
-                            "mode": "absolute",
-                            "x": place_x,
-                            "y": place_y,
-                            "z": place_z - 180,
-                            "rx": rx, "ry": ry, "rz": rz
-                        })
-
-        # --- 7. 放下鍵帽 ---
-                        spell_sequence.append({"action": "release"})
-
-        # --- 8. 上升回安全高度 ---
-                        spell_sequence.append({
-                            "mode": "absolute",
-                            "x": place_x,
-                            "y": place_y,
-                            "z": 440,
-                            "rx": rx, "ry": ry, "rz": rz
-                        })
-
-        # --- 9. 回原點 ---
-                        spell_sequence.append({
-                            "mode": "absolute",
-                            "x": 433.72,
-                            "y": 78.29,
-                            "z": 440,
-                            "rx": rx, "ry": ry, "rz": rz
-                        })
-
-                    json_data = {"spell_sequence": spell_sequence}
+                
 
 
                 # --- 相對 / 絕對移動 ---
@@ -408,7 +332,114 @@ def main():
                             "ry": abs_pose[4],
                             "rz": abs_pose[5]
                         }
+                # --- spell 功能 (依照新邏輯：先到上方->修正下降->吸取->安全高度->放置) ---
+                elif "spell" in json_data:
+                    action_list = json_data["spell"]
+                    
+                    place_base = {"x": 407.8, "y": -30.663, "z": 440.0}
+                    y_step = 19.0  # 安裝位置的 Y 間距
+                    spell_sequence = []
+                    
+                    # 檢查重複字母
+                    chars = [item["char"] for item in action_list]
+                    if len(chars) != len(set(chars)):
+                        print("包含重複字母，請輸入別的單字")
+                        continue
 
+                    # 取得目前姿態，若無則用預設
+                    feedback_pose = get_feedback_pose(feedback_file)
+                    if feedback_pose:
+                        rx = feedback_pose["tool_pose"]["rx"]
+                        ry = feedback_pose["tool_pose"]["ry"]
+                        rz = feedback_pose["tool_pose"]["rz"]
+                    else:
+                        rx, ry, rz = 180.0, 0.0, 133.0
+
+                    for idx, step in enumerate(action_list):
+                        char_target = step["char"].lower()
+                        offset_key = step["correction"]
+                        
+                        pos = get_keycap_position(char_target, keycaps_file)
+                        if not pos:
+                            print(f"找不到鍵帽 {char_target} 的座標")
+                            continue
+
+                        # 取得對應行數的修正值
+                        correction = ROW_OFFSETS.get(offset_key, {"x": 0.0, "y": 0.0, "z": 0.0})
+
+                        # 基礎座標 (無修正)
+                        base_x = pos["x"] + 3
+                        base_y = pos["y"] - 20
+                        base_z = pos["z"]
+
+                        # 修正座標 (有 Offset)
+                        corrected_x = base_x + correction["x"]
+                        corrected_y = base_y + correction["y"]
+                        # 下降高度：Z 軸向下修正
+                        pick_z = base_z + correction["z"]
+
+                        # 計算放置座標 (每次 Y 增加 19)
+                        place_x = place_base["x"]
+                        place_y = place_base["y"] + idx * y_step
+                        place_z = place_base["z"]
+
+                        # --- 1. 移動到要組裝的鍵帽上面 (先不要添加修正項) ---
+                        spell_sequence.append({
+                            "mode": "absolute",
+                            "x": base_x, "y": base_y, "z": base_z,
+                            "rx": rx, "ry": ry, "rz": rz
+                        })
+                        
+                        # --- 2. 向下移動並修正 offset ---
+                        spell_sequence.append({
+                            "mode": "absolute",
+                            "x": corrected_x, "y": corrected_y, "z": pick_z,
+                            "rx": rx, "ry": ry, "rz": rz
+                        })
+                        
+                        # --- 3. 吸取鍵帽 ---
+                        spell_sequence.append({"action": "suck"})
+
+                        # --- 4. 移動到安全高度 ---
+                        # (這裡使用 corrected_x/y 垂直上升，避免撞到隔壁)
+                        spell_sequence.append({
+                            "mode": "absolute",
+                            "x": corrected_x, "y": corrected_y, "z": 440,
+                            "rx": rx, "ry": ry, "rz": rz
+                        })
+
+                        # --- 5. 移動到指定安裝位置上方 ---
+                        spell_sequence.append({
+                            "mode": "absolute",
+                            "x": place_x, "y": place_y, "z": place_z,
+                            "rx": rx, "ry": ry, "rz": rz
+                        })
+
+                        # --- 6. 下降到放置高度 ---
+                        spell_sequence.append({
+                            "mode": "absolute",
+                            "x": place_x, "y": place_y, "z": pick_z,
+                            "rx": rx, "ry": ry, "rz": rz
+                        })
+
+                        # --- 7. 放下鍵帽 ---
+                        spell_sequence.append({"action": "release"})
+
+                        # --- 8. 上升回安全高度 ---
+                        spell_sequence.append({
+                            "mode": "absolute",
+                            "x": place_x, "y": place_y, "z": 440,
+                            "rx": rx, "ry": ry, "rz": rz
+                        })
+
+                        # --- 9. 回原點 ---
+                        spell_sequence.append({
+                            "mode": "absolute",
+                            "x": 433.72, "y": 78.29, "z": 440,
+                            "rx": rx, "ry": ry, "rz": rz
+                        })
+
+                    json_data = {"spell_sequence": spell_sequence}
                 # --- movetokeycap 功能 ---
                 elif "movetokeycap" in json_data:
                     key_name = json_data["movetokeycap"]
@@ -432,7 +463,7 @@ def main():
                     else:
                         print(f"找不到鍵帽 {key_name} 的座標")
                         continue    
-
+                
                 else:
                     print("模型輸出不包含可執行的指令欄位。")
                     continue

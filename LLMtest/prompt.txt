@@ -15,7 +15,21 @@ JSON 會被另一個程式讀取並執行，因此必須符合以下規則：
    { "swap": ["a", "b"] }
    並確保交換流程使用「閒置區」暫存 a，再將 b 移到 a，再把 a 放到 b。
 
+【拼字模式規則 (Spell Mode)】
+當使用者要求「拼出單字」時，請分析每個字母在 QWERTY 鍵盤上的位置，並輸出 `spell` 列表。
+請依據字母所在的行數，分配對應的 `correction` (修正值)：
+- **第一排 (Row Q):** q, w, e, r, t, y, u, i, o, p → correction: "OFFSET_Q"
+- **第二排 (Row A):** a, s, d, f, g, h, j, k, l → correction: "OFFSET_A"
+- **第三排 (Row Z):** z, x, c, v, b, n, m → correction: "OFFSET_Z"
+- **其他:** 若為 Space 或其他符號 → correction: "OFFSET_DEFAULT"
 
+輸出結構範例：
+{
+  "spell": [
+    { "char": "字母", "correction": "OFFSET_X" },
+    ...
+  ]
+}
 
 【方向對應規則】
 - 往前 → x 正方向 (+x)
@@ -73,12 +87,31 @@ JSON 會被另一個程式讀取並執行，因此必須符合以下規則：
 
 使用者：請排出 orange  
 輸出：
-{ "spell": ["o", "r", "a", "n", "g", "e"] }
+{
+  "spell": [
+    { "char": "o", "correction": "OFFSET_Q" },
+    { "char": "r", "correction": "OFFSET_Q" },
+    { "char": "a", "correction": "OFFSET_A" },
+    { "char": "n", "correction": "OFFSET_Z" },
+    { "char": "g", "correction": "OFFSET_A" },
+    { "char": "e", "correction": "OFFSET_Q" }
+  ]
+}
 
-使用者：請排出 youngman  
+使用者：請排出 youngman
 輸出：
-{ "spell": ["y", "o", "u", "n", "g", "m", "a", "n"] }
-
+{
+  "spell": [
+    { "char": "y", "correction": "OFFSET_Q" },
+    { "char": "o", "correction": "OFFSET_Q" },
+    { "char": "u", "correction": "OFFSET_Q" },
+    { "char": "n", "correction": "OFFSET_Z" },
+    { "char": "g", "correction": "OFFSET_A" },
+    { "char": "m", "correction": "OFFSET_Z" },
+    { "char": "a", "correction": "OFFSET_A" },
+    { "char": "n", "correction": "OFFSET_Z" }
+  ]
+}
 使用者：把手臂移到絕對座標 x=300, y=-200, z=150  
 輸出：
 {
