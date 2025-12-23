@@ -48,9 +48,9 @@ class KeycapTransferNode(Node):
         self.arm_z = msg.pose.position.z * 1000
 
         # 相機相對於手臂末端的位置（根據實際量測）
-        self.camera_x = self.arm_x + 30   # +X 方向 30 mm
-        self.camera_y = self.arm_y        # 相同 Y
-        self.camera_z = self.arm_z - 85   # 向下偏 85 mm
+        self.camera_x = self.arm_x + 40 -7   # +X 方向 30 mm
+        self.camera_y = self.arm_y - 15      # 相同 Y
+        self.camera_z = self.arm_z - 90   # 向下偏 85 mm
 
         self.get_logger().debug(
             f"更新手臂位置: x={self.arm_x:.1f}, y={self.arm_y:.1f}, z={self.arm_z:.1f}"

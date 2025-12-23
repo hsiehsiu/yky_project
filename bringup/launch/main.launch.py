@@ -14,7 +14,8 @@ def generate_launch_description():
     #tm_pkg        = get_package_share_directory('tm_driver')
     rs_pkg        = get_package_share_directory('realsense') 
     yolo_pkg      = get_package_share_directory('yolo')
-    transfer_pkg  = get_package_share_directory('transfer')
+    arduino_pkg   = get_package_share_directory('arduino')
+    #transfer_pkg  = get_package_share_directory('transfer')
     #path_pkg      = get_package_share_directory('path_planning')
     '''
     tm = IncludeLaunchDescription(
@@ -23,7 +24,11 @@ def generate_launch_description():
         ),
         launch_arguments={'robot_ip': LaunchConfiguration('robot_ip')}.items()
     )'''
-
+    arduino = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution([arduino_pkg, 'launch', 'rsucker.launch.py'])  # 依你的實際檔名
+        )
+    )
     rs = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution([rs_pkg, 'launch', 'realsense.launch.py'])  # 依你的實際檔名
@@ -35,12 +40,13 @@ def generate_launch_description():
             PathJoinSubstitution([yolo_pkg, 'launch', 'yolo.launch.py'])
         )
     )
-    
+    '''
     transfer = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution([transfer_pkg, 'launch', 'transfer.launch.py'])
         )
     )
+    '''
     '''
     path = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -52,5 +58,5 @@ def generate_launch_description():
         declare_robot_ip, declare_domain,
         set_domain,
         #tm, 
-        rs, yolo, transfer#, path
+        rs, yolo, arduino,#transfer#, path
     ])

@@ -138,7 +138,7 @@ class YoloDetector(Node):
 
         # ---------- params ----------
         self.declare_parameter('model_path', '/home/hsiu/tmrdriver_ws/src/yolo/resource/yolo_model.pt')
-        self.declare_parameter('conf', 0.5)
+        self.declare_parameter('conf', 0.3)
         self.declare_parameter('estimate_3d', True)
         self.declare_parameter('depth_in_meters', False)  # True: 深度單位 m(32FC1)；False: mm(16UC1)
         self.declare_parameter('color_topic', '/camera/color/image_raw')
