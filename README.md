@@ -1,5 +1,5 @@
 # YKY Project (LLM + YOLO + Techman Robot)
-
+# all the ros2 files becide LLMtest and Juggle should be placed in src in your workspace.
 這個專案結合了大型語言模型 (LLM)、YOLOv8 視覺辨識以及 Intel RealSense，來控制 Techman Robot (達明機器人) 與周邊硬體 (Arduino 夾爪、Wacoh Dynpick 力矩感測器)。
 
 🔗 **GitHub 專案位址：** [https://github.com/hsiehsiu/yky_project](https://github.com/hsiehsiu/yky_project)
